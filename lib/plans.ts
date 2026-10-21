@@ -1,16 +1,20 @@
 ﻿import { createClient, type SupabaseClient } from '@supabase/supabase-js';
 export type PlanType='여행'|'휴식'|'공부'|'기타';
 export type RestPlan={id:string;title:string;start:string;end:string;type:PlanType;memo:string;createdAt:string};
+type PlanRow={id:string;user_id:string;title:string;start_date:string;end_date:string;plan_type:PlanType;memo:string;created_at:string};
+type PlanInsert={id?:string;user_id:string;title:string;start_date:string;end_date:string;plan_type:PlanType;memo?:string;created_at?:string};
+type PlanUpdate=Partial<Omit<PlanInsert,'user_id'>>;
+type Database={public:{Tables:{rest_plans:{Row:PlanRow;Insert:PlanInsert;Update:PlanUpdate;Relationships:[]}};Views:Record<never,never>;Functions:Record<never,never>;Enums:Record<never,never>;CompositeTypes:Record<never,never>}};
 const KEY='red-day-blast:plans:v1';
 const url=process.env.NEXT_PUBLIC_SUPABASE_URL, anon=process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
 export const supabaseConfigured=Boolean(url&&anon);
-let client:SupabaseClient|null=null;
-export function getSupabase(){if(!supabaseConfigured)return null;return client??=createClient(url!,anon!);}
+let client:SupabaseClient<Database>|null=null;
+export function getSupabase(){if(!supabaseConfigured)return null;return client??=createClient<Database>(url!,anon!);}
 const validDate=(s:unknown):s is string=>{if(typeof s!=='string'||!/^[0-9]{4}-[0-9]{2}-[0-9]{2}$/.test(s))return false;const [y,m,d]=s.split('-').map(Number);const x=new Date(y,m-1,d);return x.getFullYear()===y&&x.getMonth()===m-1&&x.getDate()===d};
 function readLocal():RestPlan[]{try{const raw=localStorage.getItem(KEY);if(!raw)return[];const v:unknown=JSON.parse(raw);if(!Array.isArray(v))return[];return v.filter((p):p is RestPlan=>Boolean(p)&&typeof p==='object'&&typeof p.id==='string'&&typeof p.title==='string'&&validDate(p.start)&&validDate(p.end)&&p.start<=p.end&&['여행','휴식','공부','기타'].includes(p.type)&&typeof p.memo==='string'&&typeof p.createdAt==='string')}catch{return[]}}
 function writeLocal(plans:RestPlan[]){try{localStorage.setItem(KEY,JSON.stringify(plans));window.dispatchEvent(new Event('red-day-blast:plans'));return true}catch{return false}}
 export function makePlan(data:Omit<RestPlan,'id'|'createdAt'>):RestPlan{return {...data,id:globalThis.crypto?.randomUUID?.()??`${Date.now()}-${Math.random().toString(36).slice(2)}`,createdAt:new Date().toISOString()}}
-function fromRow(row:any):RestPlan{return {id:row.id,title:row.title,start:row.start_date,end:row.end_date,type:row.plan_type,memo:row.memo??'',createdAt:row.created_at}}
+function fromRow(row:PlanRow):RestPlan{return {id:row.id,title:row.title,start:row.start_date,end:row.end_date,type:row.plan_type,memo:row.memo??'',createdAt:row.created_at}}
 async function requireUser(){const supabase=getSupabase();if(!supabase)throw new Error('Supabase 환경변수가 설정되지 않았습니다.');const {data,error}=await supabase.auth.getUser();if(error||!data.user)throw new Error('계획을 저장하려면 먼저 Supabase 계정으로 로그인해 주세요.');return {supabase,user:data.user};}
 export async function listPlans():Promise<RestPlan[]>{if(!supabaseConfigured)return readLocal();const {supabase}=await requireUser();const {data,error}=await supabase.from('rest_plans').select('*').order('start_date');if(error)throw new Error(`계획을 불러오지 못했습니다: ${error.message}`);return (data??[]).map(fromRow)}
 export async function savePlan(plan:RestPlan):Promise<void>{if(!supabaseConfigured){if(!writeLocal([plan,...readLocal()]))throw new Error('브라우저 저장 공간을 사용할 수 없습니다.');return}const {supabase,user}=await requireUser();const {error}=await supabase.from('rest_plans').insert({user_id:user.id,title:plan.title,start_date:plan.start,end_date:plan.end,plan_type:plan.type,memo:plan.memo});if(error)throw new Error(`계획을 저장하지 못했습니다: ${error.message}`)}

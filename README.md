@@ -22,7 +22,7 @@ Google 공개 캘린더 조회는 API 키 방식이며 사용자 OAuth는 필요
 
 계획은 `public.rest_plans` 테이블에 저장합니다. 저장 필드는 UUID, 소유자 `user_id`, 제목, 시작·종료일, 계획 종류, 메모, 생성 시각입니다. 날짜 범위와 글자 수 제약을 DB에서 확인하고, RLS를 활성화하여 로그인 사용자가 본인 행에만 SELECT/INSERT/UPDATE/DELETE할 수 있도록 합니다. 정책은 `supabase/migrations/20261021000100_create_rest_plans.sql`에 있습니다. service_role 키는 사용하지 않습니다. 브라우저에는 공개 anon/publishable 키만 전달하며 사용자 JWT와 RLS가 권한을 제한합니다.
 
-Supabase Dashboard에서 프로젝트를 만든 뒤 SQL Editor에서 마이그레이션 SQL을 실행하거나 Supabase CLI로 마이그레이션을 적용하세요. Authentication의 이메일 인증 설정과 허용 리디렉션 URL에 로컬 및 배포 주소의 `/plans`를 추가하세요. `.env.local`에 프로젝트 URL과 공개 키를 설정하면 이메일 가입·로그인 후 계획이 DB에 저장됩니다. 기존 localStorage 계획은 로그인 후 “내 계정으로 옮기기”를 눌러 이동할 수 있습니다. 실제 프로젝트 생성, SQL 적용, 환경변수 등록은 아직 수행되지 않았습니다.
+Supabase Dashboard에서 SQL Editor에 마이그레이션 SQL을 적용하고 Authentication의 허용 리디렉션 URL에 로컬 및 배포 주소의 `/login`을 등록하세요. 인증 화면은 `/login`이며, 로그인 후 `next` 경로(기본 `/plans`)로 이동합니다. 로컬 개발에는 `.env.local`에 프로젝트 URL과 공개 키가 필요합니다. Vercel 환경 변수는 사용자가 등록했다고 확인했으며, 이 저장소에서는 실제 Vercel 설정을 직접 확인하지 않았습니다. 기존 localStorage 계획은 로그인 후 내 계획 화면의 “내 계정으로 옮기기”를 눌러 이동할 수 있습니다.
 
 ## 기술
 
@@ -53,7 +53,7 @@ npm run dev
 
 ## Vercel 배포
 
-GitHub 저장소에 프로젝트를 올리고 Vercel에서 저장소를 가져와 Next.js 프로젝트로 배포합니다. 위 환경변수를 Vercel 설정에 등록하고 재배포하세요. Google 키는 API 제한을 적용하고, 공개 웹사이트 제한은 서버 호출 방식에 맞춰 설정합니다. Supabase Auth의 Site URL 및 Redirect URLs에는 실제 배포 도메인과 `https://배포도메인/plans`를 등록합니다. 아직 실제 GitHub 저장소나 배포 주소가 없습니다.
+GitHub 저장소에 프로젝트를 올리고 Vercel에서 저장소를 가져와 Next.js 프로젝트로 배포합니다. Google, KASI, Supabase 환경 변수는 Vercel에 등록했다고 사용자가 확인했습니다. Preview/Production 환경에 모두 필요한 변수가 지정되어 있는지 대시보드에서 확인하고, 값을 바꾼 경우 재배포하세요. Google 키는 Google Calendar API로 제한합니다. Supabase Auth의 Site URL 및 Redirect URLs에는 실제 배포 도메인과 `https://배포도메인/login`을 등록합니다. 실제 GitHub 저장소나 배포 주소는 아직 문서에 제공되지 않았습니다.
 
 - GitHub 저장소: `[여기에 저장소 주소 입력]`
 - 배포 서비스: `[여기에 Vercel 서비스 주소 입력]`
@@ -71,3 +71,11 @@ Supabase가 구성된 후 별도 계정 두 개로 CRUD 및 격리를 확인하�
 ## 수행평가 참고 및 한계
 
 달력 산술은 날짜 문자열과 현지 날짜를 사용해 시간대 UTC 밀림을 피하고, 주말·공휴일은 날짜 집합으로 합쳐 중복 계산하지 않습니다. 연차 계산은 월~금 근무를 가정하므로 실제 사업장 근무일과 다를 수 있습니다. Google 캘린더 단독 일정은 공식 확정 정보가 아닙니다. 법정 공휴일 확정에는 KASI 자료와 법령을 확인하세요.
+
+## 구현 및 검증 상태
+
+- Google Calendar API는 `app/api/holidays/route.ts`에서 서버 측으로 호출합니다. 연도 범위의 종일 일정을 페이지 단위로 최대 10페이지까지 읽고, 유효한 해당 연도 날짜만 사용합니다. KASI 또는 검증된 로컬 자료와 같은 날짜면 해당 자료가 우선하며, Google 단독 날짜는 `verified: false`와 `partial`/`unverified` 상태로 전달됩니다.
+- 계획 CRUD는 `lib/plans.ts`에서 처리합니다. Supabase 사용 시 로그인 사용자의 JWT와 `rest_plans` RLS 정책을 적용하고, 설정 전에는 localStorage 임시 저장을 사용합니다. RLS SQL은 `supabase/migrations/20261021000100_create_rest_plans.sql`입니다.
+- `.gitignore`는 `.env*` 파일을 제외하며, 예시 파일 `.env.example`만 추적하도록 설정되어 있습니다. 실제 키를 저장소에 추가하지 마세요.
+- 이 체크아웃에는 `npm`과 `node_modules`가 없어 `npm test`, `npm run typecheck`, `npm run build`를 실행하지 못했습니다. Node.js는 확인했지만, 이 문서의 빌드/테스트 성공 표시는 하지 않습니다. 의존성 설치 후 세 명령을 실행하고 결과를 여기에 기록하세요.
+- Google API 호출, 실제 Supabase CRUD/RLS 격리, Vercel 배포는 실제 계정·키·배포 환경이 제공되지 않아 검증하지 않았습니다. 배포 전 README의 검증 명령과 Google/Supabase 체크리스트를 실행하세요.

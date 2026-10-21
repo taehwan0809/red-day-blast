@@ -4,7 +4,7 @@ import { ArrowDownRight, ArrowRight, CalendarDays, ChevronDown, ChevronLeft, Che
 import { dateKey, koreaToday, monthDays, restStats } from '@/lib/calendar';
 import { useHolidays } from '@/lib/use-holidays';
 
-const nav=[['대시보드','/'],['달력','/calendar'],['황금연휴','/golden'],['연차 계산기','/leave'],['통계','/stats'],['내 계획','/plans']];
+const nav=[['대시보드','/'],['달력','/calendar'],['황금연휴','/golden'],['연차 계산기','/leave'],['통계','/stats'],['내 계획','/plans'],['로그인','/login']];
 const weekday=['일','월','화','수','목','금','토'];
 const fmt=(n:number)=>String(n).padStart(2,'0');
 export default function Home(){

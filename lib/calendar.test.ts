@@ -46,3 +46,8 @@ test('해당 연도의 휴식 통계가 연도 입력을 기준으로 다시 계
   assert.equal(a.total,120);
   assert.equal(b.total,104);
 });
+
+test('leave recommendations can bridge a weekend with consecutive workdays',()=>{
+  const options=recommendLeave(2026,[],2);
+  assert.ok(options.some(o=>o.start==='2026-04-03'&&o.end==='2026-04-06'&&o.leaveDates.join(',')==='2026-04-03,2026-04-06'&&o.days===4));
+});

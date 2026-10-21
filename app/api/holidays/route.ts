@@ -4,20 +4,32 @@ export const revalidate = 86400;
 const cacheHeaders = { 'Cache-Control': 'public, s-maxage=86400, stale-while-revalidate=604800' };
 const CALENDAR_ID = 'ko.south_korea#holiday@group.v.calendar.google.com';
 type GoogleEvent = { summary?: string; start?: { date?: string }; end?: { date?: string } };
+function validDateForYear(value: string, year: number) {
+  if (!new RegExp(`^${year}-\\d{2}-\\d{2}$`).test(value)) return false;
+  const [y, m, d] = value.split('-').map(Number);
+  const date = new Date(Date.UTC(y, m - 1, d));
+  return date.getUTCFullYear() === y && date.getUTCMonth() === m - 1 && date.getUTCDate() === d;
+}
 async function googleHolidays(year: number, apiKey: string): Promise<Holiday[]> {
   const url = new URL(`https://www.googleapis.com/calendar/v3/calendars/${encodeURIComponent(CALENDAR_ID)}/events`);
   url.searchParams.set('key', apiKey); url.searchParams.set('timeMin', `${year}-01-01T00:00:00+09:00`); url.searchParams.set('timeMax', `${year + 1}-01-01T00:00:00+09:00`);
   url.searchParams.set('singleEvents', 'true'); url.searchParams.set('orderBy', 'startTime'); url.searchParams.set('maxResults', '250');
-  const response = await fetch(url, { next: { revalidate: 86400 }, signal: AbortSignal.timeout(8000) });
-  if (!response.ok) throw new Error('Google Calendar request failed');
-  const data = await response.json() as { items?: GoogleEvent[]; nextPageToken?: string };
-  if (data.nextPageToken) throw new Error('Google Calendar result exceeded one page');
   const byDate = new Map<string, Holiday>();
-  for (const event of data.items ?? []) {
-    const date = event.start?.date; const name = event.summary?.trim();
-    if (!date || !name || !new RegExp(`^${year}-\\d{2}-\\d{2}$`).test(date)) continue;
-    const kind: Holiday['kind'] = name.includes('대체') || /substitute/i.test(name) ? 'substitute' : name.includes('현충') || /memorial/i.test(name) ? 'memorial' : 'national';
-    byDate.set(date, { date, name, kind });
+  let pageToken: string | undefined;
+  for (let page = 0; page < 10; page++) {
+    if (pageToken) url.searchParams.set('pageToken', pageToken);
+    const response = await fetch(url, { next: { revalidate: 86400 }, signal: AbortSignal.timeout(8000) });
+    if (!response.ok) throw new Error('Google Calendar request failed');
+    const data = await response.json() as { items?: GoogleEvent[]; nextPageToken?: string };
+    for (const event of data.items ?? []) {
+      const date = event.start?.date; const name = event.summary?.trim();
+      if (!date || !name || !validDateForYear(date, year)) continue;
+      const kind: Holiday['kind'] = name.includes('대체') || /substitute/i.test(name) ? 'substitute' : name.includes('현충') || /memorial/i.test(name) ? 'memorial' : 'national';
+      byDate.set(date, { date, name, kind });
+    }
+    pageToken = data.nextPageToken;
+    if (!pageToken) break;
+    if (page === 9) throw new Error('Google Calendar result exceeded the safe page limit');
   }
   return [...byDate.values()].sort((a,b) => a.date.localeCompare(b.date));
 }
@@ -36,7 +48,7 @@ export async function GET(request: Request) {
       const data = await response.json(); const body = data?.response?.body; if (data?.response?.header?.resultCode !== '00' || !body) throw new Error('KASI response invalid');
       const raw = body.items?.item; const items = raw ? Array.isArray(raw) ? raw : [raw] : [];
       if (!items.length) throw new Error('KASI returned no records');
-      official = items.filter((item: any) => item.isHoliday === 'Y').map((item: any): Holiday => { const s = String(item.locdate); const date = `${s.slice(0,4)}-${s.slice(4,6)}-${s.slice(6,8)}`; const name = String(item.dateName ?? '공휴일'); return { date, name, kind: name.includes('대체') ? 'substitute' : name.includes('현충') ? 'memorial' : 'national' }; }).filter((h: Holiday) => /^\d{4}-\d{2}-\d{2}$/.test(h.date));
+      official = items.filter((item: any) => item.isHoliday === 'Y').map((item: any): Holiday | null => { const s = String(item.locdate); const date = `${s.slice(0,4)}-${s.slice(4,6)}-${s.slice(6,8)}`; if (!validDateForYear(date, year)) return null; const name = String(item.dateName ?? '공휴일'); return { date, name, kind: name.includes('대체') ? 'substitute' : name.includes('현충') ? 'memorial' : 'national' }; }).filter((h: Holiday | null): h is Holiday => h !== null);
       officialSource = '한국천문연구원 특일정보 API';
     } catch { /* Keep validated local data if KASI is unavailable. */ }
   }

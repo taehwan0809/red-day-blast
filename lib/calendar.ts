@@ -36,11 +36,11 @@ export function recommendLeave(year:number, holidayList:Holiday[]=HOLIDAYS[year]
   const calendar=Array.from({length:12},(_,m)=>monthDays(year,m,holidayList)).flat();
   const rest=new Set(calendar.filter(d=>d.rest).map(d=>d.date));
   const options:LeaveOption[]=[];
-  for(const day of calendar){ if(day.rest) continue;
-    for(let count=1;count<=maxLeave;count++){
-      const leaveDates=Array.from({length:count},(_,i)=>shiftDate(day.date,i));
-      if(leaveDates.some(d=>!calendar.some(c=>c.date===d)||rest.has(d))) continue;
-      const full=new Set([...rest,...leaveDates]); let start=day.date,end=day.date;
+  const workdays=calendar.filter(d=>!d.rest);
+  for(let first=0;first<workdays.length;first++){
+    for(let count=1;count<=maxLeave&&first+count<=workdays.length;count++){
+      const leaveDates=workdays.slice(first,first+count).map(d=>d.date);
+      const full=new Set([...rest,...leaveDates]); let start=leaveDates[0],end=leaveDates[leaveDates.length-1];
       while(full.has(shiftDate(start,-1))) start=shiftDate(start,-1);
       while(full.has(shiftDate(end,1))) end=shiftDate(end,1);
       const span=Math.round((new Date(end+'T12:00:00').getTime()-new Date(start+'T12:00:00').getTime())/86400000)+1;
