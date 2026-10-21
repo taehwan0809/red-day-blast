@@ -10,9 +10,10 @@
     "build": "next build",
     "start": "next start",
     "typecheck": "tsc --noEmit",
-    "test": "tsx --test lib/calendar.test.ts"
+    "test": "tsx --test lib/calendar.test.ts lib/golden-analysis.test.ts"
   },
   "dependencies": {
+    "@google/genai": "^2.30.0",
     "@supabase/supabase-js": "^2.118.0",
     "lucide-react": "^0.468.0",
     "next": "^16.4.2",

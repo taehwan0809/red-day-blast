@@ -1,24 +1,74 @@
 'use client';
 
 import { useMemo, useState } from 'react';
-import { Bookmark, CalendarDays } from 'lucide-react';
+import { Bookmark, CalendarDays, LoaderCircle, Plus, Sparkles, X } from 'lucide-react';
 import { SiteHeader } from '@/components/SiteHeader';
 import { PageTitle } from '@/components/PageTitle';
 import { useHolidays } from '@/lib/use-holidays';
 import { goldenOptions } from '@/lib/calendar';
 import { makePlan, savePlan } from '@/lib/plans';
+import type { AiGoldenRecommendation } from '@/lib/golden-analysis';
 
 type GoldenCard = { start: string; end: string; days: number; holidays: string[]; leaveDates: string[] };
+type AiGoldenResult = {
+  year: number;
+  source: string | null;
+  holidayStatus: string;
+  generatedAt: string;
+  recommendations: AiGoldenRecommendation[];
+};
 
 export default function GoldenPage() {
   const [year, setYear] = useState(new Date().getFullYear());
   const [saved, setSaved] = useState('');
+  const [leaveDateInput, setLeaveDateInput] = useState('');
+  const [selectedLeaveDates, setSelectedLeaveDates] = useState<string[]>([]);
+  const [aiLoading, setAiLoading] = useState(false);
+  const [aiError, setAiError] = useState('');
+  const [aiResult, setAiResult] = useState<AiGoldenResult | null>(null);
   const data = useHolidays(year);
   const options = useMemo(
     () => data.status !== 'unavailable' ? goldenOptions(year, data.holidays) : { natural: [], withLeave: [] },
     [year, data]
   );
   const natural = [...options.natural].sort((a, b) => b.days - a.days);
+
+  function changeYear(value: number) {
+    setYear(value);
+    setSelectedLeaveDates([]);
+    setLeaveDateInput('');
+    setAiResult(null);
+    setAiError('');
+  }
+
+  function addLeaveDate() {
+    if (!leaveDateInput || selectedLeaveDates.includes(leaveDateInput) || selectedLeaveDates.length >= 3) return;
+    setSelectedLeaveDates([...selectedLeaveDates, leaveDateInput].sort());
+    setLeaveDateInput('');
+    setAiResult(null);
+    setAiError('');
+  }
+
+  async function analyzeWithGemini() {
+    setAiLoading(true);
+    setAiError('');
+    setAiResult(null);
+    try {
+      const response = await fetch('/api/golden/analyze', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ year, selectedLeaveDates })
+      });
+      const result = await response.json() as AiGoldenResult & { message?: string };
+      if (!response.ok) throw new Error(result.message || 'AI 분석에 실패했어요. 다시 시도해 주세요.');
+      if (!Array.isArray(result.recommendations)) throw new Error('AI 분석 결과를 읽을 수 없어요. 다시 시도해 주세요.');
+      setAiResult(result);
+    } catch (error) {
+      setAiError(error instanceof Error ? error.message : 'AI 분석에 실패했어요. 잠시 후 다시 시도해 주세요.');
+    } finally {
+      setAiLoading(false);
+    }
+  }
 
   async function save(option: GoldenCard) {
     const leaveCount = option.leaveDates.length;
@@ -83,13 +133,123 @@ export default function GoldenPage() {
             <select
               className="border border-black/15 bg-transparent px-2 py-2 font-bold text-black"
               value={year}
-              onChange={event => setYear(Number(event.target.value))}
+              onChange={event => changeYear(Number(event.target.value))}
             >
               {Array.from({ length: 9 }, (_, index) => new Date().getFullYear() - 3 + index)
                 .map(value => <option key={value}>{value}</option>)}
             </select>
           </label>
         </PageTitle>
+
+        <section className="mb-10 bg-[#171717] p-5 text-white md:p-7" aria-labelledby="ai-analysis-title">
+          <div className="flex flex-wrap items-start justify-between gap-4">
+            <div>
+              <div className="mono text-[10px] tracking-[.16em] text-[#f04432]">GEMINI · HOLIDAY PLANNER</div>
+              <h2 id="ai-analysis-title" className="mt-2 text-2xl font-extrabold">AI 황금연휴 분석</h2>
+              <p className="mt-2 max-w-2xl text-xs leading-5 text-white/55">
+                실제 공휴일과 계산된 연휴 후보를 바탕으로 우선순위와 활용 방법을 분석합니다.
+              </p>
+            </div>
+            <Sparkles className="text-[#f04432]" size={22} aria-hidden="true" />
+          </div>
+
+          <div className="mt-5 flex flex-wrap items-end gap-3 border-t border-white/15 pt-5">
+            <label className="text-xs text-white/65">
+              휴가 날짜 선택 · 선택 사항 · 최대 3일
+              <span className="mt-2 flex gap-2">
+                <input
+                  type="date"
+                  min={`${year}-01-01`}
+                  max={`${year}-12-31`}
+                  value={leaveDateInput}
+                  onChange={event => setLeaveDateInput(event.target.value)}
+                  className="border border-white/20 bg-[#171717] px-3 py-2 text-sm text-white"
+                  aria-label="분석에 반영할 연차 날짜"
+                />
+                <button
+                  type="button"
+                  onClick={addLeaveDate}
+                  disabled={!leaveDateInput || selectedLeaveDates.length >= 3 || selectedLeaveDates.includes(leaveDateInput)}
+                  aria-label="휴가 날짜 추가"
+                  className="border border-white/25 px-3 text-white disabled:opacity-40"
+                >
+                  <Plus size={16} />
+                </button>
+              </span>
+            </label>
+            <button
+              type="button"
+              onClick={() => void analyzeWithGemini()}
+              disabled={aiLoading || data.status === 'unavailable'}
+              className="inline-flex items-center justify-center gap-2 bg-[#f04432] px-4 py-3 text-sm font-bold text-white disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              {aiLoading ? <LoaderCircle size={16} className="animate-spin" /> : <Sparkles size={16} />}
+              {aiLoading ? 'Gemini가 분석 중이에요' : 'AI 황금연휴 분석 시작'}
+            </button>
+          </div>
+
+          {selectedLeaveDates.length > 0 && (
+            <ul className="mt-3 flex flex-wrap gap-2" aria-label="선택한 휴가 날짜">
+              {selectedLeaveDates.map(date => (
+                <li key={date} className="inline-flex items-center gap-2 border border-white/20 px-2 py-1 text-xs text-white/75">
+                  {date}
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setSelectedLeaveDates(selectedLeaveDates.filter(selected => selected !== date));
+                      setAiResult(null);
+                    }}
+                    aria-label={`${date} 삭제`}
+                    className="text-white/60 hover:text-white"
+                  >
+                    <X size={13} />
+                  </button>
+                </li>
+              ))}
+            </ul>
+          )}
+
+          {aiError && (
+            <div className="mt-4 flex flex-wrap items-center justify-between gap-3 border-l-2 border-[#f04432] bg-white/5 p-3 text-sm" role="alert">
+              <span>{aiError}</span>
+              <button type="button" onClick={() => void analyzeWithGemini()} disabled={aiLoading} className="text-xs font-bold underline disabled:opacity-50">
+                다시 분석
+              </button>
+            </div>
+          )}
+
+          {aiResult && (
+            <div className="mt-6 border-t border-white/15 pt-5" aria-live="polite">
+              <div className="mb-4 flex flex-wrap items-baseline justify-between gap-2">
+                <h3 className="text-lg font-bold">{aiResult.year}년 추천 결과</h3>
+                <span className="text-[10px] text-white/45">{aiResult.source ?? '공휴일 출처 미확인'} · 실제 후보 데이터 기준</span>
+              </div>
+              {aiResult.recommendations.length === 0 ? (
+                <p className="bg-white/5 p-4 text-sm text-white/65">현재 조건에서 추천 결과가 없어요. 휴가 날짜를 바꾸거나 다시 분석해 주세요.</p>
+              ) : (
+                <div className="grid gap-3 lg:grid-cols-3">
+                  {aiResult.recommendations.map((recommendation, index) => (
+                    <article key={recommendation.candidateId} className="bg-white p-4 text-[#111] md:p-5">
+                      <div className="mono text-[10px] tracking-[.12em] text-[#f04432]">AI PICK {String(index + 1).padStart(2, '0')}</div>
+                      <h4 className="mt-2 font-bold">{recommendation.startDate} — {recommendation.endDate}</h4>
+                      <div className="mt-3 flex items-baseline gap-2 border-b border-black/10 pb-3">
+                        <strong className="mono text-4xl text-[#f04432]">{recommendation.totalRestDays}</strong>
+                        <span className="text-xs text-black/55">일 연속 휴식</span>
+                        <span className="ml-auto text-xs font-bold">연차 {recommendation.requiredLeaveDays}일</span>
+                      </div>
+                      <p className="mt-3 text-xs leading-5 text-black/70">{recommendation.reason}</p>
+                      <p className="mt-3 border-l-2 border-[#f04432] pl-3 text-xs leading-5 text-black/65">{recommendation.efficiencyAdvice}</p>
+                      <p className="mt-3 text-xs leading-5 text-black/50">{recommendation.activitySuggestion}</p>
+                      {recommendation.leaveDates.length > 0 && (
+                        <p className="mt-3 text-[10px] font-semibold text-black/55">연차 사용: {recommendation.leaveDates.join(', ')}</p>
+                      )}
+                    </article>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+        </section>
 
         {data.status === 'unavailable' ? (
           <div className="border border-[#f04432]/25 bg-[#fff4f1] p-6 text-sm">
