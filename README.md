@@ -22,7 +22,7 @@ Google 공개 캘린더 조회는 API 키 방식이며 사용자 OAuth는 필요
 
 계획은 `public.rest_plans` 테이블에 저장합니다. 저장 필드는 UUID, 소유자 `user_id`, 제목, 시작·종료일, 계획 종류, 메모, 생성 시각입니다. 날짜 범위와 글자 수 제약을 DB에서 확인하고, RLS를 활성화하여 로그인 사용자가 본인 행에만 SELECT/INSERT/UPDATE/DELETE할 수 있도록 합니다. 정책은 `supabase/migrations/20261021000100_create_rest_plans.sql`에 있습니다. service_role 키는 사용하지 않습니다. 브라우저에는 공개 anon/publishable 키만 전달하며 사용자 JWT와 RLS가 권한을 제한합니다.
 
-Supabase Dashboard에서 SQL Editor에 마이그레이션 SQL을 적용하고 Authentication의 허용 리디렉션 URL에 로컬 및 배포 주소의 `/login`을 등록하세요. 인증 화면은 `/login`이며, 로그인 후 `next` 경로(기본 `/plans`)로 이동합니다. 신규 가입은 Google OAuth를 사용하고, 기존 이메일 계정은 비밀번호로 로그인할 수 있습니다. Google Cloud에서 웹 OAuth Client ID/Secret을 발급하고, Google의 승인된 리디렉션 URI에 Supabase Dashboard의 Google Provider 화면에 표시된 callback URL을 추가하세요. Client ID/Secret은 Supabase Authentication → Sign In / Providers → Google에 설정하며 브라우저나 Vercel 공개 환경 변수에 넣지 않습니다. Supabase URL Configuration에는 사이트 주소와 `/login` 리디렉션 허용 주소를 등록합니다. 로컬 개발에는 `.env.local`에 프로젝트 URL과 공개 키가 필요합니다. Vercel 환경 변수는 사용자가 등록했다고 확인했으며, 이 저장소에서는 실제 Vercel 설정을 직접 확인하지 않았습니다. 기존 localStorage 계획은 로그인 후 내 계획 화면의 “내 계정으로 옮기기”를 눌러 이동할 수 있습니다.
+Supabase Dashboard에서 SQL Editor에 마이그레이션 SQL을 적용하고 Authentication의 허용 리디렉션 URL에 로컬 및 배포 주소의 `/login`을 등록하세요. 인증 화면은 `/login`이며 이메일과 비밀번호로 가입·로그인합니다. 가입 직후 인증 이메일 대기를 없애려면 Supabase Authentication의 Email provider 설정에서 **Confirm email**을 끄세요. 이 경우 이메일 주소 검증 없이 가입 즉시 세션이 발급되므로 주소 오타나 타인의 주소 사용을 막지 못합니다. 확인 옵션을 켜 둔 경우 Supabase가 이메일 링크를 보낸 뒤 사용자가 인증해야 로그인할 수 있습니다. 로컬 개발에는 `.env.local`에 프로젝트 URL과 공개 키가 필요합니다. Vercel 환경 변수는 사용자가 등록했다고 확인했으며, 이 저장소에서는 실제 Vercel 설정을 직접 확인하지 않았습니다. 기존 localStorage 계획은 로그인 후 내 계획 화면의 “내 계정으로 옮기기”를 눌러 이동할 수 있습니다.
 
 ## 기술
 

@@ -15,6 +15,7 @@ export default function LoginPage() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
+  const [message, setMessage] = useState('');
   const [busy, setBusy] = useState(false);
   const [checkingSession, setCheckingSession] = useState(supabaseConfigured);
 
@@ -37,9 +38,10 @@ export default function LoginPage() {
     };
   }, []);
 
-  async function authenticate(event: { preventDefault: () => void }) {
+  async function authenticate(mode: 'signin' | 'signup', event: { preventDefault: () => void }) {
     event.preventDefault();
     setError('');
+    setMessage('');
     if (!email.trim() || password.length < 6) {
       setError('이메일과 6자 이상의 비밀번호를 입력해 주세요.');
       return;
@@ -52,32 +54,19 @@ export default function LoginPage() {
 
     setBusy(true);
     try {
-      const result = await supabase.auth.signInWithPassword({ email: email.trim(), password });
+      const result = mode === 'signin'
+        ? await supabase.auth.signInWithPassword({ email: email.trim(), password })
+        : await supabase.auth.signUp({
+            email: email.trim(),
+            password,
+            options: { emailRedirectTo: `${window.location.origin}/login?next=${encodeURIComponent(getReturnPath())}` },
+          });
       if (result.error) throw result.error;
-      window.location.replace(getReturnPath());
+      if (mode === 'signin' || result.data.session) window.location.replace(getReturnPath());
+      else setMessage('가입 요청을 받았습니다. 이메일 확인이 켜져 있으면 인증 메일의 링크를 눌러야 로그인할 수 있습니다.');
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : '인증에 실패했습니다.');
     } finally {
-      setBusy(false);
-    }
-  }
-
-  async function signInWithGoogle() {
-    setError('');
-    const supabase = getSupabase();
-    if (!supabase) {
-      setError('Supabase 환경변수를 확인해 주세요.');
-      return;
-    }
-    setBusy(true);
-    try {
-      const { error: oauthError } = await supabase.auth.signInWithOAuth({
-        provider: 'google',
-        options: { redirectTo: `${window.location.origin}/login?next=${encodeURIComponent(getReturnPath())}` },
-      });
-      if (oauthError) throw oauthError;
-    } catch (cause) {
-      setError(cause instanceof Error ? cause.message : 'Google 로그인에 실패했습니다.');
       setBusy(false);
     }
   }
@@ -95,15 +84,8 @@ export default function LoginPage() {
       ) : checkingSession ? (
         <p className="bg-white p-6 text-sm text-black/55" role="status">로그인 상태를 확인하고 있어요.</p>
       ) : (
-        <section className="space-y-5">
-          <div className="bg-white p-5 md:p-7">
-            <button type="button" disabled={busy} onClick={() => void signInWithGoogle()} className="flex w-full items-center justify-center gap-3 border border-black/15 p-3 text-sm font-bold hover:bg-[#f8f7f4] disabled:opacity-50">
-              <span aria-hidden="true" className="font-bold text-base">G</span>Google 계정으로 계속하기
-            </button>
-            <p className="mt-3 text-xs leading-5 text-black/45">처음 이용하면 Google 계정으로 바로 가입됩니다. 이메일 인증 메일을 기다릴 필요가 없습니다.</p>
-          </div>
-          <form className="space-y-4 bg-white p-5 md:p-7" onSubmit={(event) => void authenticate(event)}>
-          <div className="flex items-center gap-2 text-sm font-bold"><LogIn size={17} className="text-[#f04432]"/>기존 이메일 계정 로그인</div>
+        <form className="space-y-4 bg-white p-5 md:p-7" onSubmit={(event) => void authenticate('signin', event)}>
+          <div className="flex items-center gap-2 text-sm font-bold"><LogIn size={17} className="text-[#f04432]"/>이메일 계정</div>
           <label className="block text-xs font-semibold">이메일
             <input required type="email" autoComplete="email" value={email} onChange={(event) => setEmail(event.target.value)} placeholder="이메일 주소" className="mt-2 w-full border border-black/15 p-3 text-sm" />
           </label>
@@ -111,9 +93,13 @@ export default function LoginPage() {
             <input required minLength={6} type="password" autoComplete="current-password" value={password} onChange={(event) => setPassword(event.target.value)} placeholder="6자 이상" className="mt-2 w-full border border-black/15 p-3 text-sm" />
           </label>
           {error && <p role="alert" className="text-xs text-[#c5291a]">{error}</p>}
-          <button disabled={busy} className="w-full bg-[#f04432] p-3 text-sm font-bold text-white disabled:opacity-50">로그인</button>
-          </form>
-        </section>
+          {message && <p role="status" className="text-xs text-[#287345]">{message}</p>}
+          <div className="grid gap-3 sm:grid-cols-2">
+            <button disabled={busy} className="bg-[#f04432] p-3 text-sm font-bold text-white disabled:opacity-50">로그인</button>
+            <button disabled={busy} type="button" onClick={(event) => void authenticate('signup', event)} className="border border-black/15 p-3 text-sm font-bold disabled:opacity-50">회원가입</button>
+          </div>
+          <p className="text-xs leading-5 text-black/45">빠른 가입을 원하면 Supabase에서 이메일 확인을 끌 수 있습니다. 이메일 확인이 켜져 있으면 확인 메일을 인증해야 합니다.</p>
+        </form>
       )}
     </main>
   </>;
