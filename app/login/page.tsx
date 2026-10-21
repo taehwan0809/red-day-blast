@@ -48,7 +48,7 @@ export default function LoginPage() {
     }
     const supabase = getSupabase();
     if (!supabase) {
-      setError('Supabase 환경변수를 확인해 주세요.');
+      setError('지금은 로그인을 이용할 수 없어요. 잠시 후 다시 시도해 주세요.');
       return;
     }
 
@@ -63,9 +63,22 @@ export default function LoginPage() {
           });
       if (result.error) throw result.error;
       if (mode === 'signin' || result.data.session) window.location.replace(getReturnPath());
-      else setMessage('가입 요청을 받았습니다. 이메일 확인이 켜져 있으면 인증 메일의 링크를 눌러야 로그인할 수 있습니다.');
+      else setMessage('가입 요청을 받았어요. 이메일 확인 안내가 보이면 받은 편지함의 링크를 누른 뒤 로그인해 주세요. 메일이 없다면 스팸함도 확인해 주세요.');
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : '인증에 실패했습니다.');
+      const code = typeof cause === 'object' && cause !== null && 'code' in cause ? String(cause.code) : '';
+      if (code === 'email_not_confirmed') {
+        setError('이메일 확인이 필요해요. 받은 편지함에서 확인 링크를 누른 뒤 다시 로그인해 주세요. 메일이 없다면 스팸함도 확인해 주세요.');
+      } else if (code === 'invalid_credentials') {
+        setError('이메일과 비밀번호를 다시 확인해 주세요. 아직 가입하지 않았다면 회원가입을 선택해 주세요.');
+      } else if (code === 'user_already_exists' || code === 'email_exists') {
+        setError('이미 가입된 이메일이에요. 로그인 버튼을 눌러 이용해 주세요.');
+      } else if (code === 'weak_password') {
+        setError('비밀번호가 너무 짧거나 단순해요. 조금 더 길고 안전한 비밀번호를 입력해 주세요.');
+      } else if (code === 'email_address_invalid') {
+        setError('이메일 주소를 다시 확인해 주세요.');
+      } else {
+        setError('로그인 정보를 처리하지 못했어요. 잠시 후 다시 시도해 주세요. 문제가 계속되면 서비스 관리자에게 알려 주세요.');
+      }
     } finally {
       setBusy(false);
     }
@@ -77,8 +90,8 @@ export default function LoginPage() {
       <PageTitle eyebrow="YOUR ACCOUNT" title="로그인" description="로그인하거나 계정을 만들어 휴식 계획을 저장하세요." />
       {!supabaseConfigured ? (
         <section className="bg-white p-6 text-sm leading-6 text-black/60">
-          <div className="flex items-center gap-2 font-bold text-black"><Cloud size={17} className="text-[#f04432]" />Supabase 연결이 필요합니다</div>
-          <p className="mt-3">배포 환경 변수에 `NEXT_PUBLIC_SUPABASE_URL`과 `NEXT_PUBLIC_SUPABASE_ANON_KEY`가 설정되어 있는지 확인해 주세요.</p>
+          <div className="flex items-center gap-2 font-bold text-black"><Cloud size={17} className="text-[#f04432]" />지금은 로그인을 이용할 수 없어요</div>
+          <p className="mt-3">로그인 기능을 준비하고 있어요. 잠시 후 다시 방문해 주세요.</p>
           <a href="/plans" className="mt-5 inline-flex items-center gap-2 font-bold text-[#f04432]">내 계획으로 돌아가기 <ArrowRight size={15}/></a>
         </section>
       ) : checkingSession ? (
@@ -98,7 +111,6 @@ export default function LoginPage() {
             <button disabled={busy} className="bg-[#f04432] p-3 text-sm font-bold text-white disabled:opacity-50">로그인</button>
             <button disabled={busy} type="button" onClick={(event) => void authenticate('signup', event)} className="border border-black/15 p-3 text-sm font-bold disabled:opacity-50">회원가입</button>
           </div>
-          <p className="text-xs leading-5 text-black/45">빠른 가입을 원하면 Supabase에서 이메일 확인을 끌 수 있습니다. 이메일 확인이 켜져 있으면 확인 메일을 인증해야 합니다.</p>
         </form>
       )}
     </main>
