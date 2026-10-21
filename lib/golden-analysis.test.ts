@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { buildGoldenAnalysisContext, isGeminiRateLimitError, resolveGeminiRecommendations, validateSelectedLeaveDates } from './golden-analysis';
 import { HOLIDAYS, mergeHolidayData } from './holidays';
-import type { HolidayData } from './holiday-service';
+import { isValidHolidayData, type HolidayData } from './holiday-service';
 
 const holidayData: HolidayData = {
   year: 2026,
@@ -12,6 +12,16 @@ const holidayData: HolidayData = {
   updatedAt: '2026-01-01T00:00:00.000Z',
   googleStatus: 'ok'
 };
+
+test('holiday payload validation rejects wrong years and malformed dates but accepts an empty array for explicit handling', () => {
+  assert.equal(isValidHolidayData(holidayData, 2026), true);
+  assert.equal(isValidHolidayData({ ...holidayData, holidays: [] }, 2026), true);
+  assert.equal(isValidHolidayData({ ...holidayData, year: 2025 }, 2026), false);
+  assert.equal(isValidHolidayData({ ...holidayData, source: 1 }, 2026), false);
+  assert.equal(isValidHolidayData({ ...holidayData, updatedAt: {} }, 2026), false);
+  assert.equal(isValidHolidayData({ ...holidayData, holidays: [{ ...HOLIDAYS[2026][0], date: '2026-02-30' }] }, 2026), false);
+  assert.equal(isValidHolidayData({ ...holidayData, holidays: [{ ...HOLIDAYS[2026][0], kind: 'weekend' }] }, 2026), false);
+});
 
 test('analysis context uses server holiday data and calculates natural and 1-3 day leave options', () => {
   const context = buildGoldenAnalysisContext(holidayData);

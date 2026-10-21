@@ -1,10 +1,15 @@
 import { GoogleGenAI } from '@google/genai';
 import { NextResponse } from 'next/server';
-import { buildGoldenAnalysisContext, isGeminiRateLimitError, resolveGeminiRecommendations, validateSelectedLeaveDates } from '@/lib/golden-analysis';
-import { getHolidayData } from '@/lib/holiday-service';
+import { buildGoldenAnalysisContext, resolveGeminiRecommendations, validateSelectedLeaveDates } from '@/lib/golden-analysis';
+import { classifyGeminiError, sanitizeGeminiErrorMessage, withOneTransientRetry } from '@/lib/gemini-errors';
+import { getHolidayData, isValidHolidayData } from '@/lib/holiday-service';
 
 export const runtime = 'nodejs';
 export const maxDuration = 30;
+
+function requestId(request: Request) {
+  return request.headers.get('x-vercel-id') ?? request.headers.get('x-request-id') ?? 'unavailable';
+}
 
 function recommendationSchema(candidateIds: string[]) {
   return {
@@ -32,8 +37,9 @@ function recommendationSchema(candidateIds: string[]) {
 }
 
 export async function POST(request: Request) {
-  const apiKey = process.env.GEMINI_API_KEY;
+  const apiKey = process.env.GEMINI_API_KEY?.trim();
   if (!apiKey) {
+    console.error('[golden-analysis] configuration error', JSON.stringify({ requestId: requestId(request), errorCode: 'GEMINI_API_KEY_MISSING' }));
     return NextResponse.json({
       error: 'GEMINI_API_KEY_MISSING',
       message: 'AI 분석 설정이 아직 완료되지 않았어요. 잠시 후 다시 시도해 주세요.'
@@ -56,12 +62,26 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: 'INVALID_YEAR', message: '분석할 연도를 확인해 주세요.' }, { status: 400 });
   }
 
-  const holidayData = await getHolidayData(year);
+  let holidayData;
+  try {
+    holidayData = await getHolidayData(year);
+  } catch {
+    console.error('[golden-analysis] holiday lookup failed', JSON.stringify({ requestId: requestId(request), errorCode: 'HOLIDAY_DATA_LOOKUP_FAILED' }));
+    return NextResponse.json({ error: 'HOLIDAY_DATA_UNAVAILABLE', message: `${year}년 공휴일 자료를 확인하지 못했어요. 잠시 후 다시 시도해 주세요.` }, { status: 503 });
+  }
+  if (!isValidHolidayData(holidayData, year)) {
+    console.error('[golden-analysis] invalid holiday payload', JSON.stringify({ requestId: requestId(request), errorCode: 'HOLIDAY_DATA_INVALID' }));
+    return NextResponse.json({ error: 'HOLIDAY_DATA_INVALID', message: '공휴일 자료 형식이 올바르지 않아 분석할 수 없어요.' }, { status: 503 });
+  }
   if (holidayData.status === 'unavailable') {
     return NextResponse.json({
       error: 'HOLIDAY_DATA_UNAVAILABLE',
       message: `${year}년 공휴일 자료가 없어 분석할 수 없습니다.`
     }, { status: 503 });
+  }
+  if (holidayData.holidays.length === 0) {
+    console.error('[golden-analysis] empty holiday payload', JSON.stringify({ requestId: requestId(request), errorCode: 'HOLIDAY_DATA_EMPTY' }));
+    return NextResponse.json({ error: 'HOLIDAY_DATA_EMPTY', message: `${year}년 공휴일 자료가 비어 있어 분석할 수 없어요.` }, { status: 503 });
   }
 
   const leaveDateError = validateSelectedLeaveDates(year, payload.selectedLeaveDates, holidayData.holidays);
@@ -109,7 +129,7 @@ export async function POST(request: Request) {
   let responseText: string | undefined;
   try {
     const ai = new GoogleGenAI({ apiKey });
-    const response = await ai.models.generateContent({
+    const generate = () => ai.models.generateContent({
       model: 'gemini-2.5-flash',
       contents: prompt,
       config: {
@@ -117,24 +137,38 @@ export async function POST(request: Request) {
         responseJsonSchema: recommendationSchema(candidates.map(candidate => candidate.candidateId))
       }
     });
+    const response = await withOneTransientRetry(
+      generate,
+      failure => console.warn('[golden-analysis] transient Gemini failure; retrying once', JSON.stringify({
+        requestId: requestId(request),
+        providerStatus: failure.providerStatus,
+        errorCode: failure.errorCode,
+        providerMessage: sanitizeGeminiErrorMessage(failure.safeProviderMessage, apiKey)
+      })),
+      () => new Promise<void>(resolve => setTimeout(resolve, 200))
+    );
     responseText = response.text;
   } catch (error) {
-    if (isGeminiRateLimitError(error)) {
-      return NextResponse.json({
-        error: 'GEMINI_RATE_LIMITED',
-        message: 'AI 요청이 잠시 많아요. 잠시 후 다시 분석해 주세요.'
-      }, { status: 429 });
-    }
-    return NextResponse.json({
-      error: 'GEMINI_REQUEST_FAILED',
-      message: 'Gemini 분석 요청에 실패했어요. 잠시 후 다시 시도해 주세요.'
-    }, { status: 502 });
+    const failure = classifyGeminiError(error, apiKey);
+    console.error('[golden-analysis] Gemini provider failure', JSON.stringify({
+      requestId: requestId(request),
+      providerStatus: failure.providerStatus,
+      errorCode: failure.errorCode,
+      kind: failure.kind,
+      providerMessage: failure.safeProviderMessage
+    }));
+    return NextResponse.json({ error: failure.errorCode, message: failure.userMessage }, { status: failure.responseStatus });
   }
 
   let recommendations;
   try {
     recommendations = resolveGeminiRecommendations(responseText, candidates);
-  } catch {
+  } catch (error) {
+    console.error('[golden-analysis] invalid Gemini response', JSON.stringify({
+      requestId: requestId(request),
+      errorCode: 'GEMINI_RESPONSE_INVALID',
+      message: sanitizeGeminiErrorMessage(error instanceof Error ? error.message : 'Response validation failed', apiKey)
+    }));
     return NextResponse.json({
       error: 'GEMINI_RESPONSE_INVALID',
       message: '분석 결과를 확인하지 못했어요. 다시 분석해 주세요.'

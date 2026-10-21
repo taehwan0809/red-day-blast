@@ -12,6 +12,27 @@ export type HolidayData = {
   googleStatus?: 'ok' | 'error' | 'not-configured';
 };
 
+export function isValidHolidayData(value: unknown, expectedYear: number): value is HolidayData {
+  if (!value || typeof value !== 'object') return false;
+  const data = value as Partial<HolidayData>;
+  if (data.year !== expectedYear || !Array.isArray(data.holidays)) return false;
+  if (!['official', 'partial', 'unverified', 'unavailable'].includes(String(data.status))) return false;
+  if (data.source !== null && typeof data.source !== 'string') return false;
+  if (data.updatedAt !== null && typeof data.updatedAt !== 'string') return false;
+  if (data.googleStatus !== undefined && !['ok', 'error', 'not-configured'].includes(data.googleStatus)) return false;
+  return data.holidays.every(holiday => {
+    if (!holiday || typeof holiday !== 'object') return false;
+    const item = holiday as MergedHoliday;
+    if (typeof item.date !== 'string' || typeof item.name !== 'string' || !item.name.trim()) return false;
+    if (!['national', 'substitute', 'memorial'].includes(item.kind)) return false;
+    if (item.verified !== undefined && typeof item.verified !== 'boolean') return false;
+    if (!new RegExp(`^${expectedYear}-\\d{2}-\\d{2}$`).test(item.date)) return false;
+    const [year, month, day] = item.date.split('-').map(Number);
+    const date = new Date(Date.UTC(year, month - 1, day));
+    return date.getUTCFullYear() === year && date.getUTCMonth() === month - 1 && date.getUTCDate() === day;
+  });
+}
+
 function validDateForYear(value: string, year: number) {
   if (!new RegExp(`^${year}-\\d{2}-\\d{2}$`).test(value)) return false;
   const [y, m, d] = value.split('-').map(Number);

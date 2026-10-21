@@ -31,6 +31,8 @@ Gemini는 `/golden`에서 계산된 황금연휴 후보 중 최대 3개를 고�
 
 키 이름에 `NEXT_PUBLIC_`을 붙이지 마세요. 키가 없으면 분석 API는 설정 오류를 반환하며, 할당량 또는 요청 제한 응답은 재시도 안내로 표시합니다.
 
+실제 Gemini 연결 테스트는 API 사용량이 발생할 수 있어 기본 `npm test`에서는 실행하지 않습니다. `GEMINI_API_KEY`를 설정한 뒤 PowerShell에서 `$env:GEMINI_LIVE_TEST="1"; npm test`를 실행하면 모델명과 JSON 응답 형식을 실제 API로 확인합니다. 키가 없거나 옵트인 변수가 없으면 해당 테스트만 건너뜁니다.
+
 ## Supabase 계획 저장
 
 계획은 `public.rest_plans` 테이블에 저장합니다. 저장 필드는 UUID, 소유자 `user_id`, 제목, 시작·종료일, 계획 종류, 메모, 생성 시각입니다. 날짜 범위와 글자 수 제약을 DB에서 확인하고, RLS를 활성화하여 로그인 사용자가 본인 행에만 SELECT/INSERT/UPDATE/DELETE할 수 있도록 합니다. 정책은 `supabase/migrations/20261021000100_create_rest_plans.sql`에 있습니다. service_role 키는 사용하지 않습니다. 브라우저에는 공개 anon/publishable 키만 전달하며 사용자 JWT와 RLS가 권한을 제한합니다.

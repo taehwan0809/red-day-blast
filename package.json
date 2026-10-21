@@ -10,7 +10,7 @@
     "build": "next build",
     "start": "next start",
     "typecheck": "tsc --noEmit",
-    "test": "tsx --test lib/calendar.test.ts lib/golden-analysis.test.ts"
+    "test": "tsx --test lib/calendar.test.ts lib/golden-analysis.test.ts lib/gemini-errors.test.ts lib/gemini-live.test.ts"
   },
   "dependencies": {
     "@google/genai": "^2.30.0",
