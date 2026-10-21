@@ -1,0 +1,2 @@
+import {SiteHeader} from '@/components/SiteHeader';
+export default function NotFound(){return <><SiteHeader active=""/><main className="mx-auto flex min-h-[65vh] max-w-[900px] flex-col justify-center px-6 py-16"><span className="mono text-sm tracking-[.2em] text-[#f04432]">404 · DAY NOT FOUND</span><h1 className="mt-4 text-4xl font-extrabold tracking-[-.06em]">이 페이지는 쉬는 중이에요.</h1><p className="mt-3 text-sm text-black/50">주소를 확인하거나 대시보드로 돌아가 주세요.</p><a href="/" className="mt-7 w-fit bg-[#f04432] px-5 py-3 text-sm font-bold text-white">대시보드로 돌아가기</a></main></>}
