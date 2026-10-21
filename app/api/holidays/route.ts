@@ -1,5 +1,5 @@
 ﻿import { NextResponse } from 'next/server';
-import { HOLIDAYS, type Holiday } from '@/lib/holidays';
+import { HOLIDAYS, mergeHolidayData, type Holiday } from '@/lib/holidays';
 export const revalidate = 86400;
 const cacheHeaders = { 'Cache-Control': 'public, s-maxage=86400, stale-while-revalidate=604800' };
 const CALENDAR_ID = 'ko.south_korea#holiday@group.v.calendar.google.com';
@@ -54,12 +54,9 @@ export async function GET(request: Request) {
   }
   let google: Holiday[] = []; let googleError = false;
   if (googleKey) { try { google = await googleHolidays(year, googleKey); } catch { googleError = true; } }
-  // Official KASI/local records win on date collisions; Google-only dates remain visibly marked as unverified.
-  const merged = new Map<string, Holiday & { verified?: boolean }>();
-  for (const h of google) merged.set(h.date, { ...h, verified: false });
-  for (const h of official) merged.set(h.date, { ...h, verified: true });
-  const holidays = [...merged.values()].sort((a,b) => a.date.localeCompare(b.date));
-  const hasGoogleOnlyDates = google.some(h => !official.some(o => o.date === h.date));
+  // Official records win; Google-only commemorative dates are not treated as holidays.
+  const holidays = mergeHolidayData(official, google);
+  const hasGoogleOnlyDates = holidays.some(h => !h.verified);
   const status = officialSource ? hasGoogleOnlyDates ? 'partial' : 'official' : google.length ? 'unverified' : 'unavailable';
   const source = officialSource ? `${officialSource}${google.length ? ' · Google Calendar 대조' : ''}` : google.length ? 'Google Calendar 대한민국 공휴일 캘린더 (미검증)' : null;
   return NextResponse.json({ year, holidays, source, status, updatedAt: new Date().toISOString(), googleStatus: googleKey ? googleError ? 'error' : 'ok' : 'not-configured' }, { headers: cacheHeaders });

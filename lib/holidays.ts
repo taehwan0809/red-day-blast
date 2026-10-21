@@ -1,4 +1,24 @@
 export type Holiday = { date: string; name: string; kind: 'national' | 'substitute' | 'memorial' };
+export type MergedHoliday = Holiday & { verified?: boolean };
+
+const commemorativeOnlyNames = new Set(['국군의 날', 'armed forces day', '제헌절', 'constitution day', '식목일', 'arbor day']);
+
+export function mergeHolidayData(official: Holiday[], google: Holiday[]): MergedHoliday[] {
+  const officialByDate = new Map(official.map(holiday => [holiday.date, holiday]));
+  const merged = new Map<string, MergedHoliday>();
+
+  for (const holiday of google) {
+    const normalizedName = holiday.name.trim().toLocaleLowerCase('ko-KR');
+    const isCommemorativeOnly = [...commemorativeOnlyNames].some(name => normalizedName.includes(name));
+    if (!isCommemorativeOnly || officialByDate.has(holiday.date)) {
+      merged.set(holiday.date, { ...holiday, verified: false });
+    }
+  }
+
+  for (const holiday of official) merged.set(holiday.date, { ...holiday, verified: true });
+  return [...merged.values()].sort((a, b) => a.date.localeCompare(b.date));
+}
+
 // 한국천문연구원 2026 월력요항 기준. 미확정 연도에는 임의 데이터를 생성하지 않는다.
 export const HOLIDAYS: Record<number, Holiday[]> = {
   2026: [

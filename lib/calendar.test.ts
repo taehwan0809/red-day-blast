@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { dateKey, evaluateLeave, monthDays, recommendLeave, restPeriods, restStats } from './calendar';
-import { HOLIDAYS } from './holidays';
+import { dateKey, evaluateLeave, goldenOptions, monthDays, recommendLeave, restPeriods, restStats } from './calendar';
+import { HOLIDAYS, mergeHolidayData } from './holidays';
 
 test('날짜 키와 실제 월 길이, 요일을 계산한다',()=>{
   assert.equal(dateKey(2024,1,29),'2024-02-29');
@@ -14,6 +14,26 @@ test('주말과 공휴일이 겹치는 날은 휴식일 한 번으로 센다',()
   assert.equal(stats.total,120);
   assert.equal(monthDays(2026,5,HOLIDAYS[2026]).find(d=>d.date==='2026-06-06')?.rest,true);
   assert.equal(monthDays(2026,9,HOLIDAYS[2026]).find(d=>d.date==='2026-10-03')?.holiday,'개천절');
+});
+test('Google 단독 기념일은 제외하되 공식 지정된 같은 날짜는 공휴일로 유지한다',()=>{
+  const armyDay={date:'2026-10-01',name:'국군의 날',kind:'national' as const};
+  const unverified=mergeHolidayData(HOLIDAYS[2026], [armyDay]);
+  assert.equal(unverified.some(h=>h.date===armyDay.date),false);
+  assert.equal(monthDays(2026,9,unverified).find(d=>d.date===armyDay.date)?.rest,false);
+  assert.equal(monthDays(2026,9,unverified).filter(d=>d.rest).length,11);
+
+  const officiallyDeclared={date:'2027-10-01',name:'국군의 날 임시공휴일',kind:'national' as const};
+  const verified=mergeHolidayData([officiallyDeclared], [{...officiallyDeclared,name:'국군의 날'}]);
+  assert.deepEqual(verified.find(h=>h.date===officiallyDeclared.date),{...officiallyDeclared,verified:true});
+
+  const verified2026=mergeHolidayData([...HOLIDAYS[2026],{...armyDay,name:'국군의 날 임시공휴일'}],[armyDay]);
+  assert.equal(monthDays(2026,9,verified2026).filter(d=>d.rest).length,12);
+});
+test('공식 자료가 확인한 기념일은 Google 제목과 무관하게 포함한다',()=>{
+  const constitutionDay={date:'2026-07-17',name:'제헌절',kind:'national' as const};
+  const merged=mergeHolidayData([constitutionDay],[constitutionDay]);
+  assert.deepEqual(merged,[{...constitutionDay,verified:true}]);
+  assert.deepEqual(mergeHolidayData([],[{...constitutionDay,date:'2025-07-17'}]),[]);
 });
 test('공식 2026 달력에서 연속 휴식 기간을 정확히 찾는다',()=>{
   const periods=restPeriods(2026,HOLIDAYS[2026]);
@@ -50,4 +70,13 @@ test('해당 연도의 휴식 통계가 연도 입력을 기준으로 다시 계
 test('leave recommendations can bridge a weekend with consecutive workdays',()=>{
   const options=recommendLeave(2026,[],2);
   assert.ok(options.some(o=>o.start==='2026-04-03'&&o.end==='2026-04-06'&&o.leaveDates.join(',')==='2026-04-03,2026-04-06'&&o.days===4));
+});
+
+test('황금연휴 카드는 자연 연휴와 실제 필요한 연차 추천을 구분한다',()=>{
+  const options=goldenOptions(2026,HOLIDAYS[2026]);
+  const natural=options.natural.find(option=>option.start==='2026-02-14'&&option.end==='2026-02-18');
+  assert.deepEqual(natural?.leaveDates,[]);
+  assert.ok(options.withLeave.every(option=>option.leaveDates.length>0));
+  assert.deepEqual([...new Set(options.withLeave.map(option=>option.leaveDates.length))],[1,2,3]);
+  assert.ok(options.withLeave.every(option=>option.days>option.leaveDates.length));
 });
