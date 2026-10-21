@@ -1,16 +1,20 @@
 export type Holiday = { date: string; name: string; kind: 'national' | 'substitute' | 'memorial' };
 export type MergedHoliday = Holiday & { verified?: boolean };
 
-const commemorativeOnlyNames = new Set(['국군의 날', 'armed forces day', '제헌절', 'constitution day', '식목일', 'arbor day']);
+const normalizeHolidayName = (name: string) => name.trim().toLocaleLowerCase('ko-KR').replace(/\s+/g, '');
+const commemorativeOnlyNames = new Set(['국군의 날', 'armed forces day', '제헌절', 'constitution day', '식목일', 'arbor day'].map(normalizeHolidayName));
+
+export function isCommemorativeOnlyName(name: string) {
+  const normalizedName = normalizeHolidayName(name);
+  return [...commemorativeOnlyNames].some(commemorativeName => normalizedName.includes(commemorativeName));
+}
 
 export function mergeHolidayData(official: Holiday[], google: Holiday[]): MergedHoliday[] {
   const officialByDate = new Map(official.map(holiday => [holiday.date, holiday]));
   const merged = new Map<string, MergedHoliday>();
 
   for (const holiday of google) {
-    const normalizedName = holiday.name.trim().toLocaleLowerCase('ko-KR');
-    const isCommemorativeOnly = [...commemorativeOnlyNames].some(name => normalizedName.includes(name));
-    if (!isCommemorativeOnly || officialByDate.has(holiday.date)) {
+    if (!isCommemorativeOnlyName(holiday.name) || officialByDate.has(holiday.date)) {
       merged.set(holiday.date, { ...holiday, verified: false });
     }
   }

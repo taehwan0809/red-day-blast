@@ -1,11 +1,13 @@
-import { HOLIDAYS, type Holiday } from './holidays';
+import { HOLIDAYS, isCommemorativeOnlyName, type Holiday, type MergedHoliday } from './holidays';
 export type DayInfo = { date: string; day: number; weekday: number; holiday?: string; weekend: boolean; rest: boolean };
 export const dateKey = (year:number, month:number, day:number) => `${year}-${String(month+1).padStart(2,'0')}-${String(day).padStart(2,'0')}`;
 export function koreaToday(){const parts=new Intl.DateTimeFormat('en-CA',{timeZone:'Asia/Seoul',year:'numeric',month:'2-digit',day:'2-digit'}).formatToParts(new Date());const value=(type:Intl.DateTimeFormatPartTypes)=>Number(parts.find(part=>part.type===type)?.value);return new Date(value('year'),value('month')-1,value('day'),12)}
 const shiftDate = (key:string, offset:number) => {const [y,m,d]=key.split('-').map(Number); const date=new Date(y,m-1,d+offset); return dateKey(date.getFullYear(),date.getMonth(),date.getDate())};
-export function monthDays(year:number, month:number, holidayList:Holiday[]=HOLIDAYS[year]??[]): DayInfo[] {
+export function monthDays(year:number, month:number, holidayList:(Holiday|MergedHoliday)[]=HOLIDAYS[year]??[]): DayInfo[] {
   const total = new Date(year, month+1, 0).getDate();
-  const holidays = new Map(holidayList.map(h => [h.date,h.name]));
+  const holidays = new Map(holidayList
+    .filter(h => !('verified' in h && h.verified === false && isCommemorativeOnlyName(h.name)))
+    .map(h => [h.date,h.name]));
   return Array.from({length:total},(_,i)=> { const day=i+1, weekday=new Date(year,month,day).getDay(), date=dateKey(year,month,day), holiday=holidays.get(date); return {date,day,weekday,holiday,weekend:weekday===0||weekday===6,rest:Boolean(holiday)||weekday===0||weekday===6}; });
 }
 export function restStats(year:number, today = new Date(), holidayList:Holiday[]=HOLIDAYS[year]??[]) {

@@ -17,10 +17,19 @@ test('주말과 공휴일이 겹치는 날은 휴식일 한 번으로 센다',()
 });
 test('Google 단독 기념일은 제외하되 공식 지정된 같은 날짜는 공휴일로 유지한다',()=>{
   const armyDay={date:'2026-10-01',name:'국군의 날',kind:'national' as const};
-  const unverified=mergeHolidayData(HOLIDAYS[2026], [armyDay]);
+  const unverified=mergeHolidayData(HOLIDAYS[2026], [{...armyDay,name:'국군의날'}]);
   assert.equal(unverified.some(h=>h.date===armyDay.date),false);
   assert.equal(monthDays(2026,9,unverified).find(d=>d.date===armyDay.date)?.rest,false);
   assert.equal(monthDays(2026,9,unverified).filter(d=>d.rest).length,11);
+  assert.equal(restStats(2026,new Date(2026,9,1),unverified).thisMonth,11);
+
+  const staleCachedArmyDay={...armyDay,name:'국군의날',verified:false};
+  const staleCacheDays=monthDays(2026,9,[...HOLIDAYS[2026],staleCachedArmyDay]);
+  assert.equal(staleCacheDays.find(d=>d.date===armyDay.date)?.holiday,undefined);
+  assert.equal(staleCacheDays.filter(d=>d.rest).length,11);
+
+  const unverifiedGovernmentHoliday={date:'2026-10-01',name:'임시공휴일',kind:'national' as const,verified:false};
+  assert.equal(monthDays(2026,9,[...HOLIDAYS[2026],unverifiedGovernmentHoliday]).find(d=>d.date===armyDay.date)?.rest,true);
 
   const officiallyDeclared={date:'2027-10-01',name:'국군의 날 임시공휴일',kind:'national' as const};
   const verified=mergeHolidayData([officiallyDeclared], [{...officiallyDeclared,name:'국군의 날'}]);
