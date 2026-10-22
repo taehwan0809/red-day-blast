@@ -10,7 +10,7 @@
     "build": "next build",
     "start": "next start",
     "typecheck": "tsc --noEmit",
-    "test": "tsx --test lib/calendar.test.ts lib/golden-analysis.test.ts lib/openai-errors.test.ts lib/openai-live.test.ts lib/openai-route.test.ts"
+    "test": "tsx --test lib/calendar.test.ts lib/date-picker.test.ts lib/golden-analysis.test.ts lib/openai-errors.test.ts lib/openai-live.test.ts lib/openai-route.test.ts"
   },
   "dependencies": {
     "openai": "^7.41.0",

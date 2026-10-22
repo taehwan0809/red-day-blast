@@ -10,6 +10,11 @@ export function daysBetweenDateKeys(from:string, to:string) {
   return Math.round((parse(to)-parse(from))/86_400_000);
 }
 export function koreaToday(){const parts=new Intl.DateTimeFormat('en-CA',{timeZone:'Asia/Seoul',year:'numeric',month:'2-digit',day:'2-digit'}).formatToParts(new Date());const value=(type:Intl.DateTimeFormatPartTypes)=>Number(parts.find(part=>part.type===type)?.value);return new Date(value('year'),value('month')-1,value('day'),12)}
+export function koreaDateKey(now = new Date()) {
+  const parts = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Seoul', year: 'numeric', month: '2-digit', day: '2-digit' }).formatToParts(now);
+  const value = (type: Intl.DateTimeFormatPartTypes) => parts.find(part => part.type === type)?.value ?? '';
+  return `${value('year')}-${value('month')}-${value('day')}`;
+}
 const shiftDate = (key:string, offset:number) => {const [y,m,d]=key.split('-').map(Number); const date=new Date(y,m-1,d+offset); return dateKey(date.getFullYear(),date.getMonth(),date.getDate())};
 export function monthDays(year:number, month:number, holidayList:(Holiday|MergedHoliday)[]=HOLIDAYS[year]??[]): DayInfo[] {
   const total = new Date(year, month+1, 0).getDate();
@@ -27,6 +32,14 @@ export function restStats(year:number, today = new Date(), holidayList:(Holiday|
 }
 
 export type RestPeriod = { start:string; end:string; days:number; holidays:string[] };
+export type DatedPeriod = { start:string; end:string; leaveDates?:string[] };
+export function filterUpcomingPeriods<T extends DatedPeriod>(periods: T[], asOfDate: string): T[] {
+  return periods.filter(period => period.start >= asOfDate && (period.leaveDates ?? []).every(date => date >= asOfDate));
+}
+export function rankUpcomingLeaveOptions<T extends DatedPeriod & { days: number; efficiency: number; leaveDates: string[] }>(options: T[], asOfDate: string): T[] {
+  return filterUpcomingPeriods(options, asOfDate)
+    .sort((a, b) => b.days - a.days || b.efficiency - a.efficiency || a.start.localeCompare(b.start));
+}
 export function restPeriods(year:number, holidayList:Holiday[]=HOLIDAYS[year]??[], minimum=3):RestPeriod[] {
   const days=Array.from({length:12},(_,m)=>monthDays(year,m,holidayList)).flat();
   const periods:RestPeriod[]=[]; let run:DayInfo[]=[];
@@ -54,7 +67,7 @@ export function recommendLeave(year:number, holidayList:Holiday[]=HOLIDAYS[year]
       const full=new Set([...rest,...leaveDates]); let start=leaveDates[0],end=leaveDates[leaveDates.length-1];
       while(full.has(shiftDate(start,-1))) start=shiftDate(start,-1);
       while(full.has(shiftDate(end,1))) end=shiftDate(end,1);
-      const span=Math.round((new Date(end+'T12:00:00').getTime()-new Date(start+'T12:00:00').getTime())/86400000)+1;
+      const span=daysBetweenDateKeys(start,end)+1;
       if(span>=3) options.push({start,end,days:span,leaveDates,holidays:holidayList.filter(h=>h.date>=start&&h.date<=end).map(h=>h.name),efficiency:Math.round((span/count)*10)/10});
     }
   }

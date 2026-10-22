@@ -4,6 +4,7 @@ import { buildGoldenAnalysisContext, resolveAiRecommendations, validateSelectedL
 import { classifyGptOutputError, classifyOpenAiError } from '@/lib/openai-errors';
 import { getGptModel } from '@/lib/gpt-config';
 import { getHolidayData, isValidHolidayData } from '@/lib/holiday-service';
+import { koreaDateKey } from '@/lib/calendar';
 
 export const runtime = 'nodejs';
 export const maxDuration = 30;
@@ -69,11 +70,13 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: 'INVALID_REQUEST', message: '분석 요청을 확인해 주세요.' }, { status: 400 });
   }
 
-  const payload = body as { year?: unknown; selectedLeaveDates?: unknown };
+  const payload = body as { year?: unknown; analysisDate?: unknown; selectedLeaveDates?: unknown };
   const year = payload.year;
   if (typeof year !== 'number' || !Number.isInteger(year) || year < 1900 || year > 2100) {
     return NextResponse.json({ error: 'INVALID_YEAR', message: '분석할 연도를 확인해 주세요.' }, { status: 400 });
   }
+  // The server's Seoul date is authoritative; the client value is diagnostic only.
+  const analysisDate = koreaDateKey();
 
   let holidayData;
   try {
@@ -97,12 +100,12 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: 'HOLIDAY_DATA_EMPTY', message: `${year}년 공휴일 자료가 비어 있어 분석할 수 없어요.` }, { status: 503 });
   }
 
-  const leaveDateError = validateSelectedLeaveDates(year, payload.selectedLeaveDates, holidayData.holidays);
+  const leaveDateError = validateSelectedLeaveDates(year, payload.selectedLeaveDates, holidayData.holidays, analysisDate);
   if (leaveDateError) {
     return NextResponse.json({ error: 'INVALID_LEAVE_DATES', message: leaveDateError }, { status: 400 });
   }
   const selectedLeaveDates = (payload.selectedLeaveDates ?? []) as string[];
-  const context = buildGoldenAnalysisContext(holidayData, selectedLeaveDates);
+  const context = buildGoldenAnalysisContext(holidayData, selectedLeaveDates, analysisDate);
   const candidates = [
     ...context.naturalBreaks,
     ...context.leaveOptions[1],
@@ -110,9 +113,16 @@ export async function POST(request: Request) {
     ...context.leaveOptions[3],
     ...context.selectedLeavePlans
   ];
+  if (process.env.NODE_ENV === 'development') {
+    console.info('[golden-analysis] request', JSON.stringify({
+      year, analysisDate, clientAnalysisDateMatchesServer: payload.analysisDate === analysisDate,
+      selectedLeaveDateCount: selectedLeaveDates.length, candidateCount: candidates.length
+    }));
+  }
   if (!candidates.length) {
     return NextResponse.json({
       year,
+      analysisDate,
       source: holidayData.source,
       recommendations: [],
       generatedAt: new Date().toISOString()
@@ -173,8 +183,16 @@ export async function POST(request: Request) {
     }, { status: 502 });
   }
 
+  if (process.env.NODE_ENV === 'development') {
+    console.info('[golden-analysis] response', JSON.stringify({
+      year, analysisDate, candidateCount: candidates.length, recommendationCount: recommendations.length,
+      returnedRecommendationsValidated: true
+    }));
+  }
+
   return NextResponse.json({
     year,
+    analysisDate,
     source: holidayData.source,
     holidayStatus: holidayData.status,
     generatedAt: new Date().toISOString(),

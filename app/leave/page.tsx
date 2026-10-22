@@ -5,7 +5,7 @@ import { CalendarDays, ChevronLeft, ChevronRight, Plus, RotateCcw } from 'lucide
 import { SiteHeader } from '@/components/SiteHeader';
 import { PageTitle } from '@/components/PageTitle';
 import { useHolidays } from '@/lib/use-holidays';
-import { evaluateLeave, koreaToday, monthDays, recommendLeave } from '@/lib/calendar';
+import { evaluateLeave, filterUpcomingPeriods, koreaDateKey, koreaToday, monthDays, rankUpcomingLeaveOptions, recommendLeave } from '@/lib/calendar';
 import { makePlan, savePlan } from '@/lib/plans';
 
 const week = ['일', '월', '화', '수', '목', '금', '토'];
@@ -19,6 +19,7 @@ type LeavePeriod = {
 
 export default function LeavePage() {
   const now = koreaToday();
+  const analysisDate = koreaDateKey();
   const [year, setYear] = useState(now.getFullYear());
   const [month, setMonth] = useState(now.getMonth());
   const [limit, setLimit] = useState(1);
@@ -27,10 +28,12 @@ export default function LeavePage() {
   const data = useHolidays(year);
   const days = useMemo(() => monthDays(year, month, data.holidays), [year, month, data.holidays]);
   const first = new Date(year, month, 1).getDay();
-  const impact = useMemo(() => evaluateLeave(year, selected, data.holidays), [year, selected, data.holidays]);
+  const impact = useMemo(() => filterUpcomingPeriods(evaluateLeave(year, selected, data.holidays), analysisDate), [year, selected, data.holidays, analysisDate]);
   const recommendations = useMemo(
-    () => data.status !== 'unavailable' ? recommendLeave(year, data.holidays, limit).slice(0, 6) : [],
-    [year, limit, data.status, data.holidays]
+    () => data.status !== 'unavailable'
+      ? rankUpcomingLeaveOptions(recommendLeave(year, data.holidays, limit), analysisDate).slice(0, 6)
+      : [],
+    [year, limit, data.status, data.holidays, analysisDate]
   );
 
   function move(offset: number) {
@@ -41,7 +44,7 @@ export default function LeavePage() {
 
   function toggle(date: string) {
     const day = days.find(item => item.date === date);
-    if (!day || day.rest) return;
+    if (!day || day.rest || day.date < analysisDate) return;
     setMessage('');
     setSelected(current =>
       current.includes(date)
@@ -128,7 +131,7 @@ export default function LeavePage() {
                     <div key={'blank-' + index} className="h-16 border-b border-r border-black/10 bg-[#faf9f7]" />
                   ))}
                   {days.map(day => {
-                    const blocked = day.rest;
+                    const blocked = day.rest || day.date < analysisDate;
                     return (
                       <button
                         key={day.date}
@@ -136,7 +139,7 @@ export default function LeavePage() {
                         disabled={blocked}
                         aria-pressed={selected.includes(day.date)}
                         onClick={() => toggle(day.date)}
-                        title={day.holiday || (blocked ? '휴식일이라 연차를 선택할 수 없습니다' : '연차 사용일로 선택')}
+                        title={day.holiday || (day.rest ? '휴식일이라 연차를 선택할 수 없습니다' : blocked ? '이미 지난 날짜는 선택할 수 없습니다' : '연차 사용일로 선택')}
                         className={'h-16 border-b border-r border-black/10 text-sm focus-visible:z-10 focus-visible:outline focus-visible:outline-2 focus-visible:outline-[#f04432] ' + (
                           selected.includes(day.date)
                             ? 'bg-[#f04432] font-bold text-white'

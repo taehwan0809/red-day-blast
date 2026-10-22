@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { dateKey, daysBetweenDateKeys, evaluateLeave, findNextHoliday, goldenOptions, monthDays, recommendLeave, restPeriods, restStats } from './calendar';
+import { dateKey, daysBetweenDateKeys, evaluateLeave, filterUpcomingPeriods, findNextHoliday, goldenOptions, monthDays, recommendLeave, restPeriods, restStats } from './calendar';
 import { HOLIDAYS, mergeHolidayData, mergeOfficialHolidaySources } from './holidays';
 
 test('날짜 키와 실제 월 길이, 요일을 계산한다',()=>{
@@ -105,6 +105,16 @@ test('해당 연도의 휴식 통계가 연도 입력을 기준으로 다시 계
   const b=restStats(2025,new Date(2025,0,1),[]);
   assert.equal(a.total,120);
   assert.equal(b.total,104);
+});
+
+test('기준일 이전 연휴와 이미 지난 연차 날짜를 기준일 변경에 맞춰 제외한다',()=>{
+  const periods=restPeriods(2026,HOLIDAYS[2026]);
+  const october21=filterUpcomingPeriods(periods,'2026-10-21');
+  const october22=filterUpcomingPeriods(periods,'2026-10-22');
+  assert.ok(october21.some(period=>period.start==='2026-10-03'));
+  assert.ok(!october22.some(period=>period.start<'2026-10-22'));
+  assert.ok(filterUpcomingPeriods([{start:'2026-10-22',end:'2026-10-25',leaveDates:['2026-10-22']}],'2026-10-22').length===1);
+  assert.equal(filterUpcomingPeriods([{start:'2026-10-22',end:'2026-10-25',leaveDates:['2026-10-21']}],'2026-10-22').length,0);
 });
 
 test('leave recommendations can bridge a weekend with consecutive workdays',()=>{

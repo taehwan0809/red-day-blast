@@ -1,17 +1,19 @@
 'use client';
 
-import { useMemo, useState } from 'react';
+import { useMemo, useRef, useState } from 'react';
 import { Bookmark, CalendarDays, LoaderCircle, Plus, Sparkles, X } from 'lucide-react';
 import { SiteHeader } from '@/components/SiteHeader';
 import { PageTitle } from '@/components/PageTitle';
 import { useHolidays } from '@/lib/use-holidays';
-import { goldenOptions, koreaToday } from '@/lib/calendar';
+import { filterUpcomingPeriods, goldenOptions, koreaDateKey, koreaToday } from '@/lib/calendar';
 import { makePlan, savePlan } from '@/lib/plans';
-import type { AiGoldenRecommendation } from '@/lib/golden-analysis';
+import { createGoldenAnalysisRequest, type AiGoldenRecommendation } from '@/lib/golden-analysis';
+import { openNativeDatePicker } from '@/lib/date-picker';
 
 type GoldenCard = { start: string; end: string; days: number; holidays: string[]; leaveDates: string[] };
 type AiGoldenResult = {
   year: number;
+  analysisDate: string;
   source: string | null;
   holidayStatus: string;
   generatedAt: string;
@@ -19,6 +21,9 @@ type AiGoldenResult = {
 };
 
 export default function GoldenPage() {
+  const analysisDate = koreaDateKey();
+  const dateInputRef = useRef<HTMLInputElement>(null);
+  const analysisRequestId = useRef(0);
   const [year, setYear] = useState(koreaToday().getFullYear());
   const [saved, setSaved] = useState('');
   const [leaveDateInput, setLeaveDateInput] = useState('');
@@ -31,9 +36,11 @@ export default function GoldenPage() {
     () => data.status !== 'unavailable' ? goldenOptions(year, data.holidays) : { natural: [] },
     [year, data]
   );
-  const natural = [...options.natural].sort((a, b) => b.days - a.days);
+  const natural = filterUpcomingPeriods(options.natural, analysisDate).sort((a, b) => b.days - a.days);
 
   function changeYear(value: number) {
+    analysisRequestId.current++;
+    setAiLoading(false);
     setYear(value);
     setSelectedLeaveDates([]);
     setLeaveDateInput('');
@@ -43,6 +50,8 @@ export default function GoldenPage() {
 
   function addLeaveDate() {
     if (!leaveDateInput || selectedLeaveDates.includes(leaveDateInput) || selectedLeaveDates.length >= 3) return;
+    analysisRequestId.current++;
+    setAiLoading(false);
     setSelectedLeaveDates([...selectedLeaveDates, leaveDateInput].sort());
     setLeaveDateInput('');
     setAiResult(null);
@@ -50,6 +59,15 @@ export default function GoldenPage() {
   }
 
   async function analyzeWithAi() {
+    const requestId = ++analysisRequestId.current;
+    const requestAnalysisDate = koreaDateKey();
+    const requestLeaveDates = [...selectedLeaveDates];
+    if (leaveDateInput && !requestLeaveDates.includes(leaveDateInput) && requestLeaveDates.length < 3) {
+      requestLeaveDates.push(leaveDateInput);
+    }
+    const requestData = createGoldenAnalysisRequest(year, requestAnalysisDate, requestLeaveDates);
+    setSelectedLeaveDates(requestLeaveDates);
+    if (leaveDateInput && requestLeaveDates.includes(leaveDateInput)) setLeaveDateInput('');
     setAiLoading(true);
     setAiError('');
     setAiResult(null);
@@ -57,16 +75,22 @@ export default function GoldenPage() {
       const response = await fetch('/api/golden/analyze', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ year, selectedLeaveDates })
+        body: JSON.stringify(requestData)
       });
       const result = await response.json() as AiGoldenResult & { message?: string };
       if (!response.ok) throw new Error(result.message || 'AI 분석에 실패했어요. 다시 시도해 주세요.');
       if (!Array.isArray(result.recommendations)) throw new Error('AI 분석 결과를 읽을 수 없어요. 다시 시도해 주세요.');
+      if (requestId !== analysisRequestId.current) return;
+      if (result.year !== requestData.year || result.analysisDate !== requestData.analysisDate || koreaDateKey() !== requestData.analysisDate) {
+        throw new Error('분석 기준 날짜가 바뀌었어요. 다시 분석해 주세요.');
+      }
       setAiResult(result);
     } catch (error) {
-      setAiError(error instanceof Error ? error.message : 'AI 분석에 실패했어요. 잠시 후 다시 시도해 주세요.');
+      if (requestId === analysisRequestId.current) {
+        setAiError(error instanceof Error ? error.message : 'AI 분석에 실패했어요. 잠시 후 다시 시도해 주세요.');
+      }
     } finally {
-      setAiLoading(false);
+      if (requestId === analysisRequestId.current) setAiLoading(false);
     }
   }
 
@@ -157,15 +181,25 @@ export default function GoldenPage() {
             <div className="text-xs text-white/65">
               휴가 날짜 선택 · 선택 사항 · 최대 3일
               <span className="mt-2 flex gap-2">
-                <label className="relative flex h-11 min-w-[230px] cursor-pointer items-center justify-between gap-2 border border-white/20 bg-[#171717] px-3 text-sm text-white focus-within:ring-2 focus-within:ring-[#f04432]">
+                <label
+                  onClick={() => openNativeDatePicker(dateInputRef.current)}
+                  className="relative flex h-11 min-w-[230px] cursor-pointer items-center justify-between gap-2 border border-white/20 bg-[#171717] px-3 text-sm text-white focus-within:ring-2 focus-within:ring-[#f04432]"
+                >
                   <span aria-hidden="true">{leaveDateInput ? leaveDateInput.replaceAll('-', '.') : '날짜를 선택하세요'}</span>
                   <CalendarDays size={16} aria-hidden="true" />
                   <input
+                    ref={dateInputRef}
                     type="date"
-                    min={`${year}-01-01`}
+                    min={year === Number(analysisDate.slice(0, 4)) && analysisDate > `${year}-01-01` ? analysisDate : `${year}-01-01`}
                     max={`${year}-12-31`}
                     value={leaveDateInput}
-                    onChange={event => setLeaveDateInput(event.target.value)}
+                    onChange={event => {
+                      analysisRequestId.current++;
+                      setAiLoading(false);
+                      setLeaveDateInput(event.target.value);
+                      setAiResult(null);
+                      setAiError('');
+                    }}
                     className="absolute inset-0 h-full w-full cursor-pointer opacity-0"
                     aria-label="분석에 반영할 연차 날짜"
                   />
@@ -200,6 +234,8 @@ export default function GoldenPage() {
                   <button
                     type="button"
                     onClick={() => {
+                      analysisRequestId.current++;
+                      setAiLoading(false);
                       setSelectedLeaveDates(selectedLeaveDates.filter(selected => selected !== date));
                       setAiResult(null);
                     }}

@@ -1,4 +1,4 @@
-import { evaluateLeave, monthDays, recommendLeave, restPeriods, type LeaveImpact, type LeaveOption, type RestPeriod } from './calendar';
+import { evaluateLeave, filterUpcomingPeriods, koreaDateKey, monthDays, recommendLeave, restPeriods, type LeaveImpact, type LeaveOption, type RestPeriod } from './calendar';
 import type { Holiday, MergedHoliday } from './holidays';
 import type { HolidayData } from './holiday-service';
 
@@ -21,6 +21,7 @@ export type AiGoldenRecommendation = GoldenCandidate & {
 
 export type GoldenAnalysisContext = {
   year: number;
+  analysisDate: string;
   source: string | null;
   holidayStatus: HolidayData['status'];
   holidays: MergedHoliday[];
@@ -29,6 +30,10 @@ export type GoldenAnalysisContext = {
   selectedLeaveDates: string[];
   selectedLeavePlans: GoldenCandidate[];
 };
+
+export function createGoldenAnalysisRequest(year: number, analysisDate: string, selectedLeaveDates: string[]) {
+  return { year, analysisDate, selectedLeaveDates: [...selectedLeaveDates] };
+}
 
 function candidate(id: string, period: RestPeriod | LeaveOption | LeaveImpact, leaveDates: string[]): GoldenCandidate {
   return {
@@ -50,7 +55,8 @@ function leaveCandidate(option: LeaveOption, prefix = 'leave'): GoldenCandidate 
 export function validateSelectedLeaveDates(
   year: number,
   dates: unknown,
-  holidays: (Holiday | MergedHoliday)[]
+  holidays: (Holiday | MergedHoliday)[],
+  analysisDate = koreaDateKey()
 ): string | null {
   if (dates === undefined) return null;
   if (!Array.isArray(dates) || dates.length > 3 || dates.some(date => typeof date !== 'string')) {
@@ -60,6 +66,7 @@ export function validateSelectedLeaveDates(
 
   for (const value of dates as string[]) {
     if (!new RegExp(`^${year}-\\d{2}-\\d{2}$`).test(value)) return '선택한 휴가 날짜가 분석 연도와 맞지 않아요.';
+    if (value < analysisDate) return '이미 지난 날짜는 연차 날짜로 선택할 수 없어요.';
     const [month, day] = value.slice(5).split('-').map(Number);
     const calendarDay = monthDays(year, month - 1, holidays).find(date => date.date === value);
     if (!calendarDay || calendarDay.rest || !Number.isInteger(day)) {
@@ -71,23 +78,24 @@ export function validateSelectedLeaveDates(
 
 export function buildGoldenAnalysisContext(
   holidayData: HolidayData,
-  selectedLeaveDates: string[] = []
+  selectedLeaveDates: string[] = [],
+  analysisDate = koreaDateKey()
 ): GoldenAnalysisContext {
   const year = holidayData.year;
   // Unverified calendar events must never change server-computed candidates.
   const holidays = holidayData.holidays.filter(holiday => holiday.verified !== false);
-  const naturalBreaks = restPeriods(year, holidays)
+  const naturalBreaks = filterUpcomingPeriods(restPeriods(year, holidays), analysisDate)
     .sort((a, b) => b.days - a.days)
     .slice(0, 10)
     .map(period => candidate(`natural:${period.start}:${period.end}`, period, []));
-  const allLeaveOptions = recommendLeave(year, holidays, 3);
+  const allLeaveOptions = filterUpcomingPeriods(recommendLeave(year, holidays, 3), analysisDate);
   const leaveOptions = {
     1: allLeaveOptions.filter(option => option.leaveDates.length === 1).slice(0, 5).map(option => leaveCandidate(option)),
     2: allLeaveOptions.filter(option => option.leaveDates.length === 2).slice(0, 5).map(option => leaveCandidate(option)),
     3: allLeaveOptions.filter(option => option.leaveDates.length === 3).slice(0, 5).map(option => leaveCandidate(option))
   };
   const selectedLeavePlans = selectedLeaveDates.length
-    ? evaluateLeave(year, selectedLeaveDates, holidays).map((period: LeaveImpact) => candidate(
+    ? filterUpcomingPeriods(evaluateLeave(year, selectedLeaveDates, holidays), analysisDate).map((period: LeaveImpact) => candidate(
       `selected:${period.start}:${period.end}:${period.leaveDates.join(',')}`,
       period,
       period.leaveDates
@@ -96,6 +104,7 @@ export function buildGoldenAnalysisContext(
 
   return {
     year,
+    analysisDate,
     source: holidayData.source,
     holidayStatus: holidayData.status,
     holidays,
