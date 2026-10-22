@@ -97,3 +97,14 @@ Supabase가 구성된 후 별도 계정 두 개로 CRUD 및 격리를 확인하�
 - `npm test`는 캘린더 계산과 황금연휴 분석 후보·응답 검증 테스트를 실행합니다. `npm run typecheck`와 `npm run build`로 TypeScript 및 프로덕션 빌드를 확인하세요.
 - 실제 GPT 생성 호출은 `GPT_API_KEY`가 필요합니다. Google/KASI 실 API, OpenAI 실 API, 실제 Supabase CRUD/RLS 격리, Vercel 배포 결과는 각 계정·키·배포 환경에서 별도로 확인해야 합니다.
 - Supabase 기존 프로젝트는 `20261021000100_create_rest_plans.sql` 다음에 `20261022000100_add_local_plan_import_id.sql`도 적용해야 localStorage 계획 이전을 재시도해도 중복되지 않습니다.
+## AI 일정 충돌 탐지기
+
+/schedule-check에서 직접 일정을 추가·수정·삭제하고 여러 날짜를 포함하는 일정을 날짜와 시간순으로 확인할 수 있습니다. 분석할 일정을 선택하지 않으면 전체 일정을 분석합니다. 새로고침 후에도 일정 및 마지막 분석 결과가 복원됩니다. Supabase가 설정되어 있으면 로그인한 사용자의 Auth 세션으로 schedule_check_data에 저장하며, RLS 정책으로 본인 행만 접근할 수 있습니다. Supabase 설정이 없는 개발 환경은 이 브라우저의 localStorage를 사용합니다.
+
+supabase/migrations/20261023000100_create_schedule_check_data.sql을 기존 프로젝트에 적용하세요. Supabase Dashboard → SQL Editor에서 파일 내용을 실행하거나 Supabase CLI migration workflow에 파일을 추가해 적용하면 됩니다. 기존 rest_plans 테이블에는 상세 일정을 저장하지 않습니다.
+
+시간 중복은 서버에서 날짜 키와 시간 분으로 계산합니다. 끝 시각과 다음 일정 시작 시각이 같으면 중복이 아닙니다. 일정은 최대 50개이며 API에서 텍스트 길이, 날짜, 시간을 다시 검증합니다. AI 대안은 일정 ID·날짜·장소를 검사하며 단일 일정의 시각만 변경합니다. 사용자가 적용 버튼을 누른 뒤에도 충돌을 재검사하고 저장 성공 후에만 일정을 갱신합니다.
+
+Places API (New)로 장소를 조회하고 Routes API로 일정 간 자동차 이동 예상 시간을 확인하려면 별도 서버 키 GOOGLE_MAPS_API_KEY가 필요합니다. Google Cloud Console에서 Places API (New)와 Routes API를 활성화하고 새 키를 발급한 뒤 두 API로 제한하세요. GOOGLE_CALENDAR_API_KEY와 공유하지 마세요. 로컬 .env.local 및 Vercel Project Settings → Environment Variables에 GOOGLE_MAPS_API_KEY를 등록하세요. Vercel Preview/Production 모두 설정 후 재배포해야 합니다. NEXT_PUBLIC_ 접두사를 붙이지 마세요.
+
+키가 없으면 일정 입력·저장 및 시간 중복 검사는 계속 동작하지만 지도 기반 조회는 제공되지 않습니다. Places 일반 영업시간은 공휴일의 확정 운영시간이 아니므로 방문일의 영업 여부를 직접 확인해야 합니다. Routes 이동 시간은 예상값이며 교통 상황에 따라 바뀔 수 있습니다. 이 기능은 예약 시스템에 연결되지 않아 실시간 예약 가능 여부를 확인하지 않습니다. 확인한 공식 웹사이트·전화·Google Maps 링크만 제공합니다. GPT_API_KEY가 없으면 AI 설명과 대안 대신 서버 계산 결과를 표시합니다. GPT에는 일정명·일시·장소명과 서버 산출 이슈만 전달하며 메모, 입력 주소, Place ID 및 연락처 등 상세 장소 응답은 전달하지 않습니다.
