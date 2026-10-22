@@ -95,11 +95,11 @@ export function classifyGeminiError(error: unknown, apiKey?: string): GeminiFail
       safeProviderMessage, retryable: false
     };
   }
-  if (status === 500) {
+  if (status === 500 || status === 502) {
     return {
-      kind: 'temporarily_unavailable', providerStatus: status, responseStatus: 502, errorCode: 'GEMINI_INTERNAL_ERROR',
-      userMessage: 'Gemini 내부 오류가 발생했어요. 잠시 후 다시 시도해 주세요.',
-      safeProviderMessage, retryable: true
+      kind: 'temporarily_unavailable', providerStatus: status, responseStatus: 503, errorCode: 'GEMINI_TEMPORARILY_UNAVAILABLE',
+      userMessage: 'Gemini 서비스가 일시적으로 지연되거나 응답하지 않아요. 잠시 후 다시 시도해 주세요.',
+      safeProviderMessage, retryable: false
     };
   }
   if (status === 503) {

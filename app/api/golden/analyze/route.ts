@@ -121,21 +121,14 @@ export async function POST(request: Request) {
 
   const prompt = [
     '당신은 한국의 연차와 휴일을 고려하는 여행·휴식 계획 도우미입니다.',
-    '아래 JSON에 있는 공휴일과 후보만 사용하세요. 후보에 없는 날짜, 공휴일, 연속 휴일 수를 만들거나 수정하지 마세요.',
-    '가장 추천하는 황금연휴를 최대 3개 고르고, 연차 대비 효율, 추천 이유, 여행 또는 휴식 활용법을 한국어로 작성하세요.',
-    'candidateId는 제공된 후보 ID 중에서만 선택하세요. 설명 문장에는 날짜나 숫자로 된 기간을 쓰지 말고, 후보 ID에 연결된 서버 계산 결과만 사용합니다.',
+    '후보 JSON만 근거로 가장 추천하는 기간을 최대 3개 고르세요. 날짜나 계산값을 새로 만들거나 고치지 마세요.',
+    '한국어로 이유, 연차 효율, 활용법을 각각 70자 이내로 작성하세요. candidateId는 입력 값만 쓰고 설명에 새 날짜나 기간 숫자를 넣지 마세요.',
     JSON.stringify({
       year: context.year,
-      holidaySource: context.source,
       holidayStatus: context.holidayStatus,
-      officialAndCalendarHolidayData: context.holidays,
-      naturallyConnectedBreaks: context.naturalBreaks,
-      optionsUsingOneLeaveDay: context.leaveOptions[1],
-      optionsUsingTwoLeaveDays: context.leaveOptions[2],
-      optionsUsingThreeLeaveDays: context.leaveOptions[3],
-      userSelectedLeaveDates: context.selectedLeaveDates,
-      plansUsingSelectedLeaveDates: context.selectedLeavePlans,
-      allowedCandidates: candidates
+      candidates: candidates.map(({ candidateId, startDate, endDate, totalRestDays, requiredLeaveDays, leaveDates, holidays, efficiency }) => ({
+        candidateId, startDate, endDate, totalRestDays, requiredLeaveDays, leaveDates, holidays, efficiency
+      }))
     })
   ].join('\n\n');
 
@@ -145,7 +138,9 @@ export async function POST(request: Request) {
       apiKey,
       httpOptions: {
         timeout: 12_000,
-        retryOptions: { attempts: 2, initialDelay: 0.2, maxDelay: 0.5, jitter: 0 }
+        // One bounded attempt leaves browser retry to the user and keeps this
+        // 12-second provider deadline inside the route's 30-second budget.
+        retryOptions: { attempts: 1 }
       }
     });
     const response = await ai.models.generateContent({
@@ -153,7 +148,9 @@ export async function POST(request: Request) {
       contents: prompt,
       config: {
         responseMimeType: 'application/json',
-        responseJsonSchema: recommendationSchema(candidates.map(candidate => candidate.candidateId))
+        responseJsonSchema: recommendationSchema(candidates.map(candidate => candidate.candidateId)),
+        maxOutputTokens: 1200,
+        thinkingConfig: { thinkingLevel: 'low' }
       }
     });
     responseText = response.text;

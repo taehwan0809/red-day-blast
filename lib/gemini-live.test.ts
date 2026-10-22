@@ -9,7 +9,7 @@ test('live Gemini API accepts the configured model and structured JSON response'
     apiKey: process.env.GEMINI_API_KEY!,
     httpOptions: {
       timeout: 12_000,
-      retryOptions: { attempts: 2, initialDelay: 0.2, maxDelay: 0.5, jitter: 0 }
+      retryOptions: { attempts: 1 }
     }
   });
   const response = await ai.models.generateContent({
@@ -17,6 +17,8 @@ test('live Gemini API accepts the configured model and structured JSON response'
     contents: 'Return the JSON object required by the schema.',
     config: {
       responseMimeType: 'application/json',
+      maxOutputTokens: 1200,
+      thinkingConfig: { thinkingLevel: 'low' },
       responseJsonSchema: {
         type: 'object',
         properties: { status: { type: 'string', enum: ['ok'] } },

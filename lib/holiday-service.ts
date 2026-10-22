@@ -1,4 +1,4 @@
-import { HOLIDAYS, mergeHolidayData, type Holiday, type MergedHoliday } from './holidays';
+import { HOLIDAYS, mergeHolidayData, mergeOfficialHolidaySources, type Holiday, type MergedHoliday } from './holidays';
 
 const CALENDAR_ID = 'ko.south_korea#holiday@group.v.calendar.google.com';
 type GoogleEvent = { summary?: string; start?: { date?: string }; end?: { date?: string } };
@@ -82,6 +82,13 @@ export async function getHolidayData(year: number): Promise<HolidayData> {
   const googleKey = process.env.GOOGLE_CALENDAR_API_KEY;
   let official: Holiday[] = HOLIDAYS[year] ?? [];
   let officialSource: string | null = official.length ? '한국천문연구원 2026 월력요항 및 관련 법령 확인 자료' : null;
+  let google: Holiday[] = [];
+  let googleError = false;
+  // Fetch the unverified event feed alongside KASI so server consumers do not
+  // pay both upstream latency budgets sequentially.
+  const googleLookup = googleKey
+    ? googleHolidays(year, googleKey).then(result => { google = result; }).catch(() => { googleError = true; })
+    : Promise.resolve();
   if (kasiKey) {
     try {
       const url = new URL('https://apis.data.go.kr/B090041/openapi/service/SpcdeInfoService/getRestDeInfo');
@@ -108,29 +115,20 @@ export async function getHolidayData(year: number): Promise<HolidayData> {
         })
         .filter((holiday: Holiday | null): holiday is Holiday => holiday !== null);
       if (!kasiHolidays.length) throw new Error('KASI returned no valid holidays');
-      official = kasiHolidays;
+      official = mergeOfficialHolidaySources(kasiHolidays, HOLIDAYS[year] ?? []);
       officialSource = '한국천문연구원 특일정보 API';
     } catch {
       // Keep validated local records when KASI is unavailable.
     }
   }
 
-  let google: Holiday[] = [];
-  let googleError = false;
-  if (googleKey) {
-    try {
-      google = await googleHolidays(year, googleKey);
-    } catch {
-      googleError = true;
-    }
-  }
+  await googleLookup;
 
-  const holidays = mergeHolidayData(official, google);
-  const hasGoogleOnlyDates = holidays.some(holiday => !holiday.verified);
-  const status = officialSource ? hasGoogleOnlyDates ? 'partial' : 'official' : google.length ? 'unverified' : 'unavailable';
-  const source = officialSource
-    ? `${officialSource}${google.length ? ' · Google Calendar 대조' : ''}`
-    : google.length ? 'Google Calendar 대한민국 공휴일 캘린더 (미검증)' : null;
+  const merged = mergeHolidayData(official, google);
+  // Calendar-only items are general observances, not evidence of a statutory holiday.
+  const holidays = merged.filter(holiday => holiday.verified === true);
+  const status = holidays.length ? 'official' : 'unavailable';
+  const source = holidays.length ? officialSource : null;
   return {
     year,
     holidays,

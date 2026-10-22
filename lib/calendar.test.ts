@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { dateKey, evaluateLeave, goldenOptions, monthDays, recommendLeave, restPeriods, restStats } from './calendar';
-import { HOLIDAYS, mergeHolidayData } from './holidays';
+import { dateKey, daysBetweenDateKeys, evaluateLeave, findNextHoliday, goldenOptions, monthDays, recommendLeave, restPeriods, restStats } from './calendar';
+import { HOLIDAYS, mergeHolidayData, mergeOfficialHolidaySources } from './holidays';
 
 test('날짜 키와 실제 월 길이, 요일을 계산한다',()=>{
   assert.equal(dateKey(2024,1,29),'2024-02-29');
@@ -15,10 +15,10 @@ test('주말과 공휴일이 겹치는 날은 휴식일 한 번으로 센다',()
   assert.equal(monthDays(2026,5,HOLIDAYS[2026]).find(d=>d.date==='2026-06-06')?.rest,true);
   assert.equal(monthDays(2026,9,HOLIDAYS[2026]).find(d=>d.date==='2026-10-03')?.holiday,'개천절');
 });
-test('Google 단독 기념일은 제외하되 공식 지정된 같은 날짜는 공휴일로 유지한다',()=>{
+test('Google 단독 이벤트는 공휴일 계산에서 제외하고 공식 지정일은 유지한다',()=>{
   const armyDay={date:'2026-10-01',name:'국군의 날',kind:'national' as const};
   const unverified=mergeHolidayData(HOLIDAYS[2026], [{...armyDay,name:'국군의날'}]);
-  assert.equal(unverified.some(h=>h.date===armyDay.date),false);
+  assert.equal(unverified.find(h=>h.date===armyDay.date)?.verified,false);
   assert.equal(monthDays(2026,9,unverified).find(d=>d.date===armyDay.date)?.rest,false);
   assert.equal(monthDays(2026,9,unverified).filter(d=>d.rest).length,11);
   assert.equal(restStats(2026,new Date(2026,9,1),unverified).thisMonth,11);
@@ -29,7 +29,7 @@ test('Google 단독 기념일은 제외하되 공식 지정된 같은 날짜는 
   assert.equal(staleCacheDays.filter(d=>d.rest).length,11);
 
   const unverifiedGovernmentHoliday={date:'2026-10-01',name:'임시공휴일',kind:'national' as const,verified:false};
-  assert.equal(monthDays(2026,9,[...HOLIDAYS[2026],unverifiedGovernmentHoliday]).find(d=>d.date===armyDay.date)?.rest,true);
+  assert.equal(monthDays(2026,9,[...HOLIDAYS[2026],unverifiedGovernmentHoliday]).find(d=>d.date===armyDay.date)?.rest,false);
 
   const officiallyDeclared={date:'2027-10-01',name:'국군의 날 임시공휴일',kind:'national' as const};
   const verified=mergeHolidayData([officiallyDeclared], [{...officiallyDeclared,name:'국군의 날'}]);
@@ -42,7 +42,29 @@ test('공식 자료가 확인한 기념일은 Google 제목과 무관하게 포�
   const constitutionDay={date:'2026-07-17',name:'제헌절',kind:'national' as const};
   const merged=mergeHolidayData([constitutionDay],[constitutionDay]);
   assert.deepEqual(merged,[{...constitutionDay,verified:true}]);
-  assert.deepEqual(mergeHolidayData([],[{...constitutionDay,date:'2025-07-17'}]),[]);
+  assert.deepEqual(mergeHolidayData([],[{...constitutionDay,date:'2025-07-17'}]),[{...constitutionDay,date:'2025-07-17',verified:false}]);
+});
+test('2026-10-22 다음 공식 공휴일은 12월 25일이며 날짜 차이는 시간대에 무관하다',()=>{
+  const googleChristmasEve={date:'2026-12-24',name:'Christmas Eve',kind:'national' as const};
+  const merged=mergeHolidayData(HOLIDAYS[2026],[googleChristmasEve]);
+  assert.equal(merged.find(h=>h.date==='2026-12-24')?.verified,false);
+  assert.equal(monthDays(2026,11,merged).find(d=>d.date==='2026-12-24')?.holiday,undefined);
+  const next=findNextHoliday(merged,'2026-10-22');
+  assert.equal(next?.date,'2026-12-25');
+  assert.equal(daysBetweenDateKeys('2026-10-22',next!.date),64);
+});
+test('KASI 우선으로 날짜 중복과 이름 차이를 정리하고 로컬 누락 날짜를 보충한다',()=>{
+  const kasi=[{date:'2026-12-25',name:'기독탄신일',kind:'national' as const},{date:'2026-12-25',name:'성탄절',kind:'national' as const}];
+  const merged=mergeOfficialHolidaySources(kasi,HOLIDAYS[2026]);
+  assert.equal(merged.filter(h=>h.date==='2026-12-25').length,1);
+  assert.equal(merged.find(h=>h.date==='2026-12-25')?.name,'기독탄신일');
+  assert.ok(merged.some(h=>h.date==='2026-10-05'&&h.kind==='substitute'));
+});
+test('공식 임시공휴일은 포함하고 주말 중복은 한 번만 계산한다',()=>{
+  const temporary={date:'2027-10-04',name:'임시공휴일',kind:'national' as const};
+  const days=monthDays(2027,9,[temporary]);
+  assert.equal(days.find(d=>d.date===temporary.date)?.rest,true);
+  assert.equal(restStats(2027,new Date(2027,0,1),[temporary]).total,105);
 });
 test('공식 2026 달력에서 연속 휴식 기간을 정확히 찾는다',()=>{
   const periods=restPeriods(2026,HOLIDAYS[2026]);

@@ -1,26 +1,24 @@
 export type Holiday = { date: string; name: string; kind: 'national' | 'substitute' | 'memorial' };
 export type MergedHoliday = Holiday & { verified?: boolean };
 
-const normalizeHolidayName = (name: string) => name.trim().toLocaleLowerCase('ko-KR').replace(/\s+/g, '');
-const commemorativeOnlyNames = new Set(['국군의 날', 'armed forces day', '제헌절', 'constitution day', '식목일', 'arbor day'].map(normalizeHolidayName));
-
-export function isCommemorativeOnlyName(name: string) {
-  const normalizedName = normalizeHolidayName(name);
-  return [...commemorativeOnlyNames].some(commemorativeName => normalizedName.includes(commemorativeName));
-}
-
 export function mergeHolidayData(official: Holiday[], google: Holiday[]): MergedHoliday[] {
-  const officialByDate = new Map(official.map(holiday => [holiday.date, holiday]));
   const merged = new Map<string, MergedHoliday>();
 
-  for (const holiday of google) {
-    if (!isCommemorativeOnlyName(holiday.name) || officialByDate.has(holiday.date)) {
-      merged.set(holiday.date, { ...holiday, verified: false });
-    }
-  }
-
+  // Official records win by date. Google Calendar includes observances and seasonal
+  // events, so Google-only records remain explicitly unverified.
+  for (const holiday of google) if (!merged.has(holiday.date)) merged.set(holiday.date, { ...holiday, verified: false });
   for (const holiday of official) merged.set(holiday.date, { ...holiday, verified: true });
   return [...merged.values()].sort((a, b) => a.date.localeCompare(b.date));
+}
+
+export function mergeOfficialHolidaySources(primary: Holiday[], fallback: Holiday[]): Holiday[] {
+  const byDate = new Map<string, Holiday>();
+  // KASI's legal holiday classification/name takes precedence. Curated local
+  // records fill dates omitted by the API and deduplicate repeated KASI records.
+  for (const holiday of [...primary, ...fallback]) {
+    if (!byDate.has(holiday.date)) byDate.set(holiday.date, holiday);
+  }
+  return [...byDate.values()].sort((a, b) => a.date.localeCompare(b.date));
 }
 
 // 한국천문연구원 2026 월력요항 기준. 미확정 연도에는 임의 데이터를 생성하지 않는다.

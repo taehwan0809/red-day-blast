@@ -1,19 +1,27 @@
-import { HOLIDAYS, isCommemorativeOnlyName, type Holiday, type MergedHoliday } from './holidays';
+import { HOLIDAYS, type Holiday, type MergedHoliday } from './holidays';
 export type DayInfo = { date: string; day: number; weekday: number; holiday?: string; weekend: boolean; rest: boolean };
 export const dateKey = (year:number, month:number, day:number) => `${year}-${String(month+1).padStart(2,'0')}-${String(day).padStart(2,'0')}`;
+export function findNextHoliday(holidayList:(Holiday|MergedHoliday)[], todayKey:string) {
+  return holidayList.filter(holiday => !('verified' in holiday && holiday.verified === false) && holiday.date >= todayKey)
+    .sort((a,b)=>a.date.localeCompare(b.date))[0];
+}
+export function daysBetweenDateKeys(from:string, to:string) {
+  const parse = (key:string) => { const [year,month,day]=key.split('-').map(Number); return Date.UTC(year,month-1,day); };
+  return Math.round((parse(to)-parse(from))/86_400_000);
+}
 export function koreaToday(){const parts=new Intl.DateTimeFormat('en-CA',{timeZone:'Asia/Seoul',year:'numeric',month:'2-digit',day:'2-digit'}).formatToParts(new Date());const value=(type:Intl.DateTimeFormatPartTypes)=>Number(parts.find(part=>part.type===type)?.value);return new Date(value('year'),value('month')-1,value('day'),12)}
 const shiftDate = (key:string, offset:number) => {const [y,m,d]=key.split('-').map(Number); const date=new Date(y,m-1,d+offset); return dateKey(date.getFullYear(),date.getMonth(),date.getDate())};
 export function monthDays(year:number, month:number, holidayList:(Holiday|MergedHoliday)[]=HOLIDAYS[year]??[]): DayInfo[] {
   const total = new Date(year, month+1, 0).getDate();
   const holidays = new Map(holidayList
-    .filter(h => !('verified' in h && h.verified === false && isCommemorativeOnlyName(h.name)))
+    .filter(h => !('verified' in h && h.verified === false))
     .map(h => [h.date,h.name]));
   return Array.from({length:total},(_,i)=> { const day=i+1, weekday=new Date(year,month,day).getDay(), date=dateKey(year,month,day), holiday=holidays.get(date); return {date,day,weekday,holiday,weekend:weekday===0||weekday===6,rest:Boolean(holiday)||weekday===0||weekday===6}; });
 }
-export function restStats(year:number, today = new Date(), holidayList:Holiday[]=HOLIDAYS[year]??[]) {
+export function restStats(year:number, today = new Date(), holidayList:(Holiday|MergedHoliday)[]=HOLIDAYS[year]??[]) {
   const all=Array.from({length:12},(_,m)=>monthDays(year,m,holidayList)).flat();
   const key=dateKey(today.getFullYear(),today.getMonth(),today.getDate());
-  const holidays=holidayList;
+  const holidays=holidayList.filter(h => !('verified' in h && h.verified === false));
   let longest=0,run=0; all.forEach(d=>{run=d.rest?run+1:0;longest=Math.max(longest,run)});
   return { total:all.filter(d=>d.rest).length, remaining:all.filter(d=>d.rest&&d.date>=key).length, thisMonth:year===today.getFullYear()?monthDays(year,today.getMonth(),holidayList).filter(d=>d.rest).length:all.filter(d=>d.rest).length, longest, holidays };
 }

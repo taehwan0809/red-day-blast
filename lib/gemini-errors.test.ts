@@ -10,9 +10,11 @@ test('Gemini provider HTTP failures map to distinct safe response categories', (
   assert.equal(classifyGeminiError(Object.assign(new Error('Model not found'), { status: 404 })).errorCode, 'GEMINI_MODEL_UNAVAILABLE');
   assert.equal(classifyGeminiError(Object.assign(new Error('Model gemini-2.5-flash not found'), { status: 400 })).errorCode, 'GEMINI_MODEL_UNAVAILABLE');
   assert.equal(classifyGeminiError(Object.assign(new Error('Quota exceeded'), { status: 429 })).responseStatus, 429);
-  assert.equal(classifyGeminiError(Object.assign(new Error('Internal error'), { status: 500 })).errorCode, 'GEMINI_INTERNAL_ERROR');
+  assert.equal(classifyGeminiError(Object.assign(new Error('Internal error'), { status: 500 })).errorCode, 'GEMINI_TEMPORARILY_UNAVAILABLE');
+  assert.equal(classifyGeminiError(Object.assign(new Error('Bad gateway'), { status: 502 })).responseStatus, 503);
   assert.equal(classifyGeminiError(Object.assign(new Error('Unavailable'), { status: 503 })).errorCode, 'GEMINI_SERVICE_UNAVAILABLE');
   assert.equal(classifyGeminiError(Object.assign(new Error('Deadline exceeded'), { status: 504 })).responseStatus, 504);
+  assert.equal(classifyGeminiError(Object.assign(new Error('Deadline exceeded'), { status: 504 })).userMessage.includes('시간이 초과'), true);
   assert.equal(classifyGeminiError(Object.assign(new Error('Request timeout'), { status: 408 })).errorCode, 'GEMINI_TIMEOUT');
   assert.equal(classifyGeminiError(new Error('Request timed out')).responseStatus, 504);
 });
