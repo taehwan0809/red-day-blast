@@ -91,6 +91,15 @@ test('연차 추천은 주말·공휴일을 연차일로 중복 추천하지 않
   assert.ok(options.every(o=>o.leaveDates.every(d=>!rest.has(d))));
   assert.ok(options.every(o=>o.days>=3&&o.efficiency===Math.round(o.days/o.leaveDates.length*10)/10));
 });
+test('연차 추천은 실제 연결되는 기간과 사용일을 정확히 돌려준다',()=>{
+  const option=recommendLeave(2026,HOLIDAYS[2026],1).find(item=>item.leaveDates.includes('2026-04-30'));
+  assert.ok(option);
+  assert.equal(option.start,'2026-04-30');
+  assert.equal(option.end,'2026-05-03');
+  assert.equal(option.days,4);
+  assert.deepEqual(option.leaveDates,['2026-04-30']);
+  assert.ok(option.holidays.includes('노동절'));
+});
 test('해당 연도의 휴식 통계가 연도 입력을 기준으로 다시 계산된다',()=>{
   const a=restStats(2026,new Date(2026,0,1),HOLIDAYS[2026]);
   const b=restStats(2025,new Date(2025,0,1),[]);
@@ -103,11 +112,12 @@ test('leave recommendations can bridge a weekend with consecutive workdays',()=>
   assert.ok(options.some(o=>o.start==='2026-04-03'&&o.end==='2026-04-06'&&o.leaveDates.join(',')==='2026-04-03,2026-04-06'&&o.days===4));
 });
 
-test('황금연휴 카드는 자연 연휴와 실제 필요한 연차 추천을 구분한다',()=>{
+test('황금연휴 목록은 자연 연휴를 제공하고 연차 추천은 연차 계산기 로직을 사용한다',()=>{
   const options=goldenOptions(2026,HOLIDAYS[2026]);
   const natural=options.natural.find(option=>option.start==='2026-02-14'&&option.end==='2026-02-18');
   assert.deepEqual(natural?.leaveDates,[]);
-  assert.ok(options.withLeave.every(option=>option.leaveDates.length>0));
-  assert.deepEqual([...new Set(options.withLeave.map(option=>option.leaveDates.length))],[1,2,3]);
-  assert.ok(options.withLeave.every(option=>option.days>option.leaveDates.length));
+  assert.ok(!('withLeave' in options));
+  const leaveOptions=recommendLeave(2026,HOLIDAYS[2026],2);
+  assert.ok(leaveOptions.length>0);
+  assert.ok(leaveOptions.every(option=>option.leaveDates.length<=2&&option.days>option.leaveDates.length));
 });

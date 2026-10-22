@@ -28,7 +28,7 @@ export default function GoldenPage() {
   const [aiResult, setAiResult] = useState<AiGoldenResult | null>(null);
   const data = useHolidays(year);
   const options = useMemo(
-    () => data.status !== 'unavailable' ? goldenOptions(year, data.holidays) : { natural: [], withLeave: [] },
+    () => data.status !== 'unavailable' ? goldenOptions(year, data.holidays) : { natural: [] },
     [year, data]
   );
   const natural = [...options.natural].sort((a, b) => b.days - a.days);
@@ -154,18 +154,22 @@ export default function GoldenPage() {
           </div>
 
           <div className="mt-5 flex flex-wrap items-end gap-3 border-t border-white/15 pt-5">
-            <label className="text-xs text-white/65">
+            <div className="text-xs text-white/65">
               휴가 날짜 선택 · 선택 사항 · 최대 3일
               <span className="mt-2 flex gap-2">
-                <input
-                  type="date"
-                  min={`${year}-01-01`}
-                  max={`${year}-12-31`}
-                  value={leaveDateInput}
-                  onChange={event => setLeaveDateInput(event.target.value)}
-                  className="border border-white/20 bg-[#171717] px-3 py-2 text-sm text-white"
-                  aria-label="분석에 반영할 연차 날짜"
-                />
+                <label className="relative flex h-11 min-w-[230px] cursor-pointer items-center justify-between gap-2 border border-white/20 bg-[#171717] px-3 text-sm text-white focus-within:ring-2 focus-within:ring-[#f04432]">
+                  <span aria-hidden="true">{leaveDateInput ? leaveDateInput.replaceAll('-', '.') : '날짜를 선택하세요'}</span>
+                  <CalendarDays size={16} aria-hidden="true" />
+                  <input
+                    type="date"
+                    min={`${year}-01-01`}
+                    max={`${year}-12-31`}
+                    value={leaveDateInput}
+                    onChange={event => setLeaveDateInput(event.target.value)}
+                    className="absolute inset-0 h-full w-full cursor-pointer opacity-0"
+                    aria-label="분석에 반영할 연차 날짜"
+                  />
+                </label>
                 <button
                   type="button"
                   onClick={addLeaveDate}
@@ -176,7 +180,7 @@ export default function GoldenPage() {
                   <Plus size={16} />
                 </button>
               </span>
-            </label>
+            </div>
             <button
               type="button"
               onClick={() => void analyzeWithGemini()}
@@ -273,24 +277,6 @@ export default function GoldenPage() {
                 </div>
               ) : (
                 <p className="bg-white p-6 text-sm text-black/50">이 연도에는 연차 없이 3일 이상 연속 휴식 기간이 없습니다.</p>
-              )}
-            </section>
-
-            <section className="mt-10" aria-labelledby="leave-breaks">
-              <div className="mb-2 flex items-center justify-between">
-                <h2 id="leave-breaks" className="text-lg font-bold">연차를 더해 만드는 연휴</h2>
-                <span className="text-xs text-black/45">최대 3일 사용 · 추천 {options.withLeave.length}개</span>
-              </div>
-              <p className="mb-5 text-xs text-black/45">연차 사용일은 주말과 공휴일을 제외해 계산합니다.</p>
-              {options.withLeave.length ? (
-                <div className="grid gap-3 md:grid-cols-2">
-                  {options.withLeave.map((option, index) => renderCard(
-                    option,
-                    `연차 ${option.leaveDates.length}일 추천 ${String(index + 1).padStart(2, '0')}`
-                  ))}
-                </div>
-              ) : (
-                <p className="bg-white p-6 text-sm text-black/50">추천할 수 있는 연차 사용 기간이 없습니다.</p>
               )}
             </section>
 

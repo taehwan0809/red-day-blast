@@ -36,7 +36,7 @@ export function restPeriods(year:number, holidayList:Holiday[]=HOLIDAYS[year]??[
 
 export type LeaveOption = RestPeriod & { leaveDates:string[]; efficiency:number };
 export type LeaveImpact = RestPeriod & { leaveDates:string[]; efficiency:number };
-export type GoldenOptions = { natural: (RestPeriod & { leaveDates:string[] })[]; withLeave: LeaveOption[] };
+export type GoldenOptions = { natural: (RestPeriod & { leaveDates:string[] })[] };
 export function evaluateLeave(year:number, leaveDates:string[], holidayList:Holiday[]=HOLIDAYS[year]??[]):LeaveImpact[] {
   const days=Array.from({length:12},(_,m)=>monthDays(year,m,holidayList)).flat();const available=new Set(days.filter(d=>d.rest).map(d=>d.date));
   const valid=leaveDates.filter(d=>days.some(x=>x.date===d&&!x.rest));const all=new Set([...available,...valid]);const result:LeaveImpact[]=[];let run:DayInfo[]=[];
@@ -62,19 +62,6 @@ export function recommendLeave(year:number, holidayList:Holiday[]=HOLIDAYS[year]
   return [...unique.values()].sort((a,b)=>b.efficiency-a.efficiency||b.days-a.days);
 }
 
-export function goldenOptions(year:number, holidayList:Holiday[]=HOLIDAYS[year]??[], maxLeave=3, recommendationLimit=6):GoldenOptions {
-  const recommendations = recommendLeave(year,holidayList,maxLeave);
-  const byLeaveCount = Array.from({length:maxLeave},(_,index)=>recommendations.filter(option=>option.leaveDates.length===index+1));
-  const withLeave:LeaveOption[] = [];
-  for(let rank=0;withLeave.length<recommendationLimit;rank++){
-    let found=false;
-    for(const options of byLeaveCount){
-      if(options[rank]&&withLeave.length<recommendationLimit){withLeave.push(options[rank]);found=true}
-    }
-    if(!found)break;
-  }
-  return {
-    natural: restPeriods(year,holidayList).map(period=>({...period,leaveDates:[]})),
-    withLeave
-  };
+export function goldenOptions(year:number, holidayList:Holiday[]=HOLIDAYS[year]??[]):GoldenOptions {
+  return { natural: restPeriods(year,holidayList).map(period=>({...period,leaveDates:[]})) };
 }
