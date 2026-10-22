@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { GoogleGenAI } from '@google/genai';
+import { GoogleGenAI, ThinkingLevel } from '@google/genai';
 
 const liveTestEnabled = process.env.GEMINI_LIVE_TEST === '1' && Boolean(process.env.GEMINI_API_KEY);
 
@@ -18,7 +18,7 @@ test('live Gemini API accepts the configured model and structured JSON response'
     config: {
       responseMimeType: 'application/json',
       maxOutputTokens: 1200,
-      thinkingConfig: { thinkingLevel: 'low' },
+      thinkingConfig: { thinkingLevel: ThinkingLevel.LOW },
       responseJsonSchema: {
         type: 'object',
         properties: { status: { type: 'string', enum: ['ok'] } },

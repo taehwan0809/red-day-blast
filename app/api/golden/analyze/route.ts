@@ -1,4 +1,4 @@
-import { GoogleGenAI } from '@google/genai';
+import { GoogleGenAI, ThinkingLevel } from '@google/genai';
 import { NextResponse } from 'next/server';
 import { buildGoldenAnalysisContext, resolveGeminiRecommendations, validateSelectedLeaveDates } from '@/lib/golden-analysis';
 import { classifyGeminiError } from '@/lib/gemini-errors';
@@ -150,7 +150,7 @@ export async function POST(request: Request) {
         responseMimeType: 'application/json',
         responseJsonSchema: recommendationSchema(candidates.map(candidate => candidate.candidateId)),
         maxOutputTokens: 1200,
-        thinkingConfig: { thinkingLevel: 'low' }
+        thinkingConfig: { thinkingLevel: ThinkingLevel.LOW }
       }
     });
     responseText = response.text;
