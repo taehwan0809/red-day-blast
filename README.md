@@ -8,7 +8,7 @@
 - 3일 이상 황금연휴 탐색, 연차 날짜 조합과 효율 추천
 - 개인 계획 등록·조회·수정·삭제
 - Google Calendar 대한민국 공휴일 데이터와 KASI 자료의 서버 측 조회·병합
-- Gemini 기반 AI 황금연휴 추천 이유와 휴가 활용 분석
+- OpenAI GPT 기반 AI 황금연휴 추천 이유와 휴가 활용 분석
 - Supabase Auth와 사용자별 RLS 기반 계획 저장. Supabase 미설정 시 기존 브라우저 localStorage 임시 저장 사용
 
 ## 공휴일 데이터: Google Calendar 및 KASI
@@ -19,19 +19,19 @@ Google 공개 캘린더 조회는 API 키 방식이며 사용자 OAuth는 필요
 
 선택 사항으로 공공데이터포털에서 `한국천문연구원_특일 정보` 활용 신청 후 `KASI_SERVICE_KEY`를 설정하면 공식 자료 우선 대조가 가능합니다. API 키가 없는 경우 2026년 자료만 KASI 월력요항 및 관련 법령 확인을 바탕으로 제공합니다. 미래 임시공휴일 등은 자료 제공 시점에 따라 빠질 수 있습니다.
 
-## Gemini AI 황금연휴 분석
+## GPT AI 황금연휴 분석
 
-Gemini는 `/golden`에서 계산된 황금연휴 후보 중 최대 3개를 고르고, 추천 이유·연차 효율·여행 또는 휴식 활용 방법을 작성합니다. Gemini가 공휴일 날짜나 연속 휴일 수를 결정하지 않습니다. 서버가 Google Calendar/KASI/검증된 로컬 자료를 사용해 자연 연휴와 연차 1·2·3일 후보를 계산하고, Gemini 응답의 후보 ID를 검증한 뒤 날짜·연차 수·휴일 수를 서버 계산값으로 복원합니다. 사용자가 선택한 휴가 날짜도 서버에서 연도와 평일 여부를 확인합니다.
+GPT는 `/golden`에서 계산된 황금연휴 후보 중 최대 3개를 고르고, 추천 이유·연차 효율·여행 또는 휴식 활용 방법을 작성합니다. AI가 공휴일 날짜나 연속 휴일 수를 결정하지 않습니다. 서버가 Google Calendar/KASI/검증된 로컬 자료를 사용해 자연 연휴와 연차 1·2·3일 후보를 계산하고, 응답의 후보 ID를 검증한 뒤 날짜·연차 수·휴일 수를 서버 계산값으로 복원합니다. 사용자가 선택한 휴가 날짜도 서버에서 연도와 평일 여부를 확인합니다.
 
-브라우저는 `POST /api/golden/analyze`에 연도와 선택 휴가 날짜만 전달합니다. Gemini SDK 호출과 응답 검증은 서버에서 수행하며 API 키는 브라우저에 노출되지 않습니다.
+브라우저는 `POST /api/golden/analyze`에 연도와 선택 휴가 날짜만 전달합니다. 공식 OpenAI SDK 호출과 JSON Schema 응답 검증은 서버에서 수행하며 API 키는 브라우저에 노출되지 않습니다.
 
-1. [Google AI Studio API 키 페이지](https://aistudio.google.com/apikey)에서 Gemini API 키를 발급합니다.
-2. 로컬 `.env.local`에 `GEMINI_API_KEY=발급받은_키`를 설정하고 개발 서버를 재시작합니다. `.env.local`은 Git에 올리지 마세요.
-3. Vercel Project Settings → Environment Variables에서 `GEMINI_API_KEY`를 Preview와 Production 환경에 등록하고 재배포합니다.
+1. OpenAI Platform에서 API 키를 발급합니다.
+2. 로컬 `.env.local`에 `GPT_API_KEY=발급받은_키`를 설정하고 필요하면 `GPT_MODEL`에 사용할 모델 ID를 지정한 뒤 개발 서버를 재시작합니다. `.env.local`은 Git에 올리지 마세요.
+3. Vercel Project Settings → Environment Variables에서 `GPT_API_KEY`와 선택 사항인 `GPT_MODEL`을 Preview와 Production 환경에 등록하고 재배포합니다.
 
-키 이름에 `NEXT_PUBLIC_`을 붙이지 마세요. 키가 없으면 분석 API는 설정 오류를 반환하며, 할당량 또는 요청 제한 응답은 재시도 안내로 표시합니다.
+키 이름에 `NEXT_PUBLIC_`을 붙이지 마세요. 키가 없으면 분석 API는 설정 오류를 반환하며, 인증·사용량 한도·시간 초과·일시적 서버 오류는 구분된 오류 코드와 재시도 안내로 표시합니다. SDK가 transient 오류를 최대 한 번 재시도하며 별도 재시도 로직은 없습니다.
 
-실제 Gemini 연결 테스트는 API 사용량이 발생할 수 있어 기본 `npm test`에서는 실행하지 않습니다. `GEMINI_API_KEY`를 설정한 뒤 PowerShell에서 `$env:GEMINI_LIVE_TEST="1"; npm test`를 실행하면 모델명과 JSON 응답 형식을 실제 API로 확인합니다. 키가 없거나 옵트인 변수가 없으면 해당 테스트만 건너뜁니다.
+실제 OpenAI 연결 테스트는 API 사용량이 발생할 수 있어 기본 `npm test`에서는 실행하지 않습니다. `GPT_API_KEY`를 설정한 뒤 PowerShell에서 `$env:OPENAI_LIVE_TEST="1"; npm test`를 실행하면 설정한 모델과 JSON 응답 형식을 실제 API로 확인합니다. 키가 없거나 옵트인 변수가 없으면 해당 테스트만 건너뜁니다.
 
 ## Supabase 계획 저장
 
@@ -41,11 +41,11 @@ Supabase Dashboard에서 SQL Editor에 마이그레이션 SQL을 적용하고 Au
 
 ## 기술
 
-Next.js App Router, TypeScript, Tailwind CSS, Recharts, lucide-react, Supabase JS, Google Gen AI SDK, 한국천문연구원 특일정보 API, Google Calendar API.
+Next.js App Router, TypeScript, Tailwind CSS, Recharts, lucide-react, Supabase JS, OpenAI SDK, 한국천문연구원 특일정보 API, Google Calendar API.
 
 ## 로컬 실행
 
-Node.js 20.9 이상이 필요합니다.
+Node.js 22 이상이 필요합니다 (OpenAI SDK 7.x 기준).
 
 ```bash
 npm install
@@ -61,7 +61,8 @@ npm run dev
 |---|---|---|
 | `GOOGLE_CALENDAR_API_KEY` | Google 공휴일을 쓸 때 필요 | 서버 전용 Google Calendar API 키 |
 | `KASI_SERVICE_KEY` | 선택 | KASI 공휴일 자료 보강 |
-| `GEMINI_API_KEY` | AI 황금연휴 분석에 필요 | 서버 전용 Gemini API 키 |
+| `GPT_API_KEY` | AI 황금연휴 분석에 필요 | 서버 전용 OpenAI API 키 |
+| `GPT_MODEL` | 선택 | GPT 모델 ID (기본값 `gpt-6-luna`) |
 | `NEXT_PUBLIC_SUPABASE_URL` | DB 사용 시 필요 | Supabase 프로젝트 URL |
 | `NEXT_PUBLIC_SUPABASE_ANON_KEY` | DB 사용 시 필요 | 브라우저 공개 anon/publishable 키 |
 
@@ -69,7 +70,7 @@ npm run dev
 
 ## Vercel 배포
 
-GitHub 저장소에 프로젝트를 올리고 Vercel에서 저장소를 가져와 Next.js 프로젝트로 배포합니다. Google, KASI, Supabase 환경 변수는 Vercel에 등록했다고 사용자가 확인했습니다. Preview/Production 환경에 모두 필요한 변수가 지정되어 있는지 대시보드에서 확인하고, 값을 바꾼 경우 재배포하세요. Google 키는 Google Calendar API로 제한합니다. Gemini 키는 `GEMINI_API_KEY`로 등록하고 `NEXT_PUBLIC_` 접두사를 사용하지 마세요. Supabase Auth의 Site URL 및 Redirect URLs에는 실제 배포 도메인과 `https://배포도메인/login`을 등록합니다. 실제 GitHub 저장소나 배포 주소는 아직 문서에 제공되지 않았습니다.
+GitHub 저장소에 프로젝트를 올리고 Vercel에서 저장소를 가져와 Next.js 프로젝트로 배포합니다. Google, KASI, Supabase 환경 변수는 Vercel에 등록했다고 사용자가 확인했습니다. Preview/Production 환경에 모두 필요한 변수가 지정되어 있는지 대시보드에서 확인하고, 값을 바꾼 경우 재배포하세요. Google 키는 Google Calendar API로 제한합니다. OpenAI 키는 `GPT_API_KEY`로 등록하고 `NEXT_PUBLIC_` 접두사를 사용하지 마세요. Supabase Auth의 Site URL 및 Redirect URLs에는 실제 배포 도메인과 `https://배포도메인/login`을 등록합니다. 실제 GitHub 저장소나 배포 주소는 아직 문서에 제공되지 않았습니다.
 
 - GitHub 저장소: `[여기에 저장소 주소 입력]`
 - 배포 서비스: `[여기에 Vercel 서비스 주소 입력]`
@@ -94,5 +95,5 @@ Supabase가 구성된 후 별도 계정 두 개로 CRUD 및 격리를 확인하�
 - 계획 CRUD는 `lib/plans.ts`에서 처리합니다. Supabase 사용 시 로그인 사용자의 JWT와 `rest_plans` RLS 정책을 적용하고, 설정 전에는 localStorage 임시 저장을 사용합니다. RLS SQL은 `supabase/migrations/20261021000100_create_rest_plans.sql`입니다.
 - `.gitignore`는 `.env*` 파일을 제외하며, 예시 파일 `.env.example`만 추적하도록 설정되어 있습니다. 실제 키를 저장소에 추가하지 마세요.
 - `npm test`는 캘린더 계산과 황금연휴 분석 후보·응답 검증 테스트를 실행합니다. `npm run typecheck`와 `npm run build`로 TypeScript 및 프로덕션 빌드를 확인하세요.
-- 실제 Gemini 생성 호출은 `GEMINI_API_KEY`가 필요합니다. Google/KASI 실 API, 실제 Supabase CRUD/RLS 격리, Vercel 배포 결과도 각 계정·키·배포 환경에서 별도로 확인해야 합니다.
+- 실제 GPT 생성 호출은 `GPT_API_KEY`가 필요합니다. Google/KASI 실 API, OpenAI 실 API, 실제 Supabase CRUD/RLS 격리, Vercel 배포 결과는 각 계정·키·배포 환경에서 별도로 확인해야 합니다.
 - Supabase 기존 프로젝트는 `20261021000100_create_rest_plans.sql` 다음에 `20261022000100_add_local_plan_import_id.sql`도 적용해야 localStorage 계획 이전을 재시도해도 중복되지 않습니다.

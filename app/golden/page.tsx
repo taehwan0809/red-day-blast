@@ -49,7 +49,7 @@ export default function GoldenPage() {
     setAiError('');
   }
 
-  async function analyzeWithGemini() {
+  async function analyzeWithAi() {
     setAiLoading(true);
     setAiError('');
     setAiResult(null);
@@ -144,7 +144,7 @@ export default function GoldenPage() {
         <section className="mb-10 bg-[#171717] p-5 text-white md:p-7" aria-labelledby="ai-analysis-title">
           <div className="flex flex-wrap items-start justify-between gap-4">
             <div>
-              <div className="mono text-[10px] tracking-[.16em] text-[#f04432]">GEMINI · HOLIDAY PLANNER</div>
+              <div className="mono text-[10px] tracking-[.16em] text-[#f04432]">GPT · HOLIDAY PLANNER</div>
               <h2 id="ai-analysis-title" className="mt-2 text-2xl font-extrabold">AI 황금연휴 분석</h2>
               <p className="mt-2 max-w-2xl text-xs leading-5 text-white/55">
                 실제 공휴일과 계산된 연휴 후보를 바탕으로 우선순위와 활용 방법을 분석합니다.
@@ -183,12 +183,12 @@ export default function GoldenPage() {
             </div>
             <button
               type="button"
-              onClick={() => void analyzeWithGemini()}
+              onClick={() => void analyzeWithAi()}
               disabled={aiLoading || data.status === 'unavailable'}
               className="inline-flex items-center justify-center gap-2 bg-[#f04432] px-4 py-3 text-sm font-bold text-white disabled:cursor-not-allowed disabled:opacity-50"
             >
               {aiLoading ? <LoaderCircle size={16} className="animate-spin" /> : <Sparkles size={16} />}
-              {aiLoading ? 'Gemini가 분석 중이에요' : 'AI 황금연휴 분석 시작'}
+              {aiLoading ? 'AI가 분석 중이에요' : 'AI 황금연휴 분석 시작'}
             </button>
           </div>
 
@@ -216,7 +216,7 @@ export default function GoldenPage() {
           {aiError && (
             <div className="mt-4 flex flex-wrap items-center justify-between gap-3 border-l-2 border-[#f04432] bg-white/5 p-3 text-sm" role="alert">
               <span>{aiError}</span>
-              <button type="button" onClick={() => void analyzeWithGemini()} disabled={aiLoading} className="text-xs font-bold underline disabled:opacity-50">
+              <button type="button" onClick={() => void analyzeWithAi()} disabled={aiLoading} className="text-xs font-bold underline disabled:opacity-50">
                 다시 분석
               </button>
             </div>

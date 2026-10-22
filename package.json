@@ -3,17 +3,17 @@
   "version": "1.0.0",
   "private": true,
   "engines": {
-    "node": ">=20.9.0"
+    "node": ">=22.0.0"
   },
   "scripts": {
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
     "typecheck": "tsc --noEmit",
-    "test": "tsx --test lib/calendar.test.ts lib/golden-analysis.test.ts lib/gemini-errors.test.ts lib/gemini-live.test.ts"
+    "test": "tsx --test lib/calendar.test.ts lib/golden-analysis.test.ts lib/openai-errors.test.ts lib/openai-live.test.ts lib/openai-route.test.ts"
   },
   "dependencies": {
-    "@google/genai": "^2.30.0",
+    "openai": "^7.41.0",
     "@supabase/supabase-js": "^2.118.0",
     "lucide-react": "^0.468.0",
     "next": "^16.4.2",

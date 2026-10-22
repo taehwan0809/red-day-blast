@@ -1,7 +1,8 @@
-import { GoogleGenAI, ThinkingLevel } from '@google/genai';
+import OpenAI from 'openai';
 import { NextResponse } from 'next/server';
-import { buildGoldenAnalysisContext, resolveGeminiRecommendations, validateSelectedLeaveDates } from '@/lib/golden-analysis';
-import { classifyGeminiError } from '@/lib/gemini-errors';
+import { buildGoldenAnalysisContext, resolveAiRecommendations, validateSelectedLeaveDates } from '@/lib/golden-analysis';
+import { classifyGptOutputError, classifyOpenAiError } from '@/lib/openai-errors';
+import { getGptModel } from '@/lib/gpt-config';
 import { getHolidayData, isValidHolidayData } from '@/lib/holiday-service';
 
 export const runtime = 'nodejs';
@@ -30,7 +31,6 @@ function recommendationSchema(candidateIds: string[]) {
     properties: {
       recommendations: {
         type: 'array',
-        maxItems: 3,
         items: {
           type: 'object',
           properties: {
@@ -50,11 +50,11 @@ function recommendationSchema(candidateIds: string[]) {
 }
 
 export async function POST(request: Request) {
-  const apiKey = process.env.GEMINI_API_KEY?.trim();
+  const apiKey = process.env.GPT_API_KEY?.trim();
   if (!apiKey) {
     logFailure(request, 'configuration', 'api_key_missing', null, 503);
     return NextResponse.json({
-      error: 'GEMINI_API_KEY_MISSING',
+      error: 'GPT_API_KEY_MISSING',
       message: 'AI 분석 설정이 아직 완료되지 않았어요. 잠시 후 다시 시도해 주세요.'
     }, { status: 503 });
   }
@@ -122,7 +122,7 @@ export async function POST(request: Request) {
   const prompt = [
     '당신은 한국의 연차와 휴일을 고려하는 여행·휴식 계획 도우미입니다.',
     '후보 JSON만 근거로 가장 추천하는 기간을 최대 3개 고르세요. 날짜나 계산값을 새로 만들거나 고치지 마세요.',
-    '한국어로 이유, 연차 효율, 활용법을 각각 70자 이내로 작성하세요. candidateId는 입력 값만 쓰고 설명에 새 날짜나 기간 숫자를 넣지 마세요.',
+    '한국어로 이유, 연차 효율, 활용법을 각각 간결하게 작성하세요. candidateId는 입력 값만 쓰고 설명에 새 날짜나 기간 숫자를 넣지 마세요. 요청한 JSON 형식만 반환하세요.',
     JSON.stringify({
       year: context.year,
       holidayStatus: context.holidayStatus,
@@ -134,42 +134,42 @@ export async function POST(request: Request) {
 
   let responseText: string | undefined;
   try {
-    const ai = new GoogleGenAI({
+    const ai = new OpenAI({
       apiKey,
-      httpOptions: {
-        timeout: 12_000,
-        // One bounded attempt leaves browser retry to the user and keeps this
-        // 12-second provider deadline inside the route's 30-second budget.
-        retryOptions: { attempts: 1 }
+      // At most two 9-second requests; no second retry layer. This leaves
+      // room for holiday lookup and response handling within maxDuration=30.
+      timeout: 9_000,
+      maxRetries: 1
+    });
+    const response = await ai.responses.create({
+      model: getGptModel(),
+      input: prompt,
+      max_output_tokens: 900,
+      text: {
+        format: {
+          type: 'json_schema',
+          name: 'golden_holiday_recommendations',
+          strict: true,
+          schema: recommendationSchema(candidates.map(candidate => candidate.candidateId))
+        }
       }
     });
-    const response = await ai.models.generateContent({
-      model: 'gemini-3.8-flash',
-      contents: prompt,
-      config: {
-        responseMimeType: 'application/json',
-        responseJsonSchema: recommendationSchema(candidates.map(candidate => candidate.candidateId)),
-        maxOutputTokens: 1200,
-        thinkingConfig: { thinkingLevel: ThinkingLevel.LOW }
-      }
-    });
-    responseText = response.text;
+    responseText = response.output_text;
   } catch (error) {
-    const failure = classifyGeminiError(error, apiKey);
+    const failure = classifyOpenAiError(error);
     logFailure(request, 'generate_content', failure.kind, failure.providerStatus, failure.responseStatus);
     return NextResponse.json({ error: failure.errorCode, message: failure.userMessage }, { status: failure.responseStatus });
   }
 
   let recommendations;
   try {
-    recommendations = resolveGeminiRecommendations(responseText, candidates);
+    recommendations = resolveAiRecommendations(responseText, candidates);
   } catch (error) {
-    const invalidJson = error instanceof Error && error.message === 'Gemini response is not valid JSON';
-    const errorCode = invalidJson ? 'GEMINI_RESPONSE_JSON_INVALID' : 'GEMINI_RESPONSE_INVALID';
-    logFailure(request, 'response_validation', invalidJson ? 'json_parse_failed' : 'schema_validation_failed', null, 502);
+    const failure = classifyGptOutputError(error);
+    logFailure(request, 'response_validation', failure.errorKind, null, 502);
     return NextResponse.json({
-      error: errorCode,
-      message: invalidJson ? 'AI 응답을 JSON으로 읽지 못했어요. 다시 분석해 주세요.' : 'AI 응답 형식이 올바르지 않아요. 다시 분석해 주세요.'
+      error: failure.errorCode,
+      message: failure.userMessage
     }, { status: 502 });
   }
 

@@ -30,13 +30,6 @@ export type GoldenAnalysisContext = {
   selectedLeavePlans: GoldenCandidate[];
 };
 
-export function isGeminiRateLimitError(error: unknown) {
-  if (!error || typeof error !== 'object') return false;
-  const details = error as { status?: number; code?: number | string; message?: string };
-  const errorCode = String(details.code ?? '');
-  return details.status === 429 || errorCode === '429' || /resource[ _]exhausted|rate limit|too many requests/i.test(`${errorCode} ${details.message ?? ''}`);
-}
-
 function candidate(id: string, period: RestPeriod | LeaveOption | LeaveImpact, leaveDates: string[]): GoldenCandidate {
   return {
     candidateId: id,
@@ -80,7 +73,9 @@ export function buildGoldenAnalysisContext(
   holidayData: HolidayData,
   selectedLeaveDates: string[] = []
 ): GoldenAnalysisContext {
-  const { year, holidays } = holidayData;
+  const year = holidayData.year;
+  // Unverified calendar events must never change server-computed candidates.
+  const holidays = holidayData.holidays.filter(holiday => holiday.verified !== false);
   const naturalBreaks = restPeriods(year, holidays)
     .sort((a, b) => b.days - a.days)
     .slice(0, 10)
@@ -111,40 +106,40 @@ export function buildGoldenAnalysisContext(
   };
 }
 
-export function resolveGeminiRecommendations(
+export function resolveAiRecommendations(
   text: string | undefined,
   candidates: GoldenCandidate[]
 ): AiGoldenRecommendation[] {
-  if (!text) throw new Error('Gemini returned an empty response');
+  if (!text) throw new Error('AI returned an empty response');
   let parsed: unknown;
   try {
     parsed = JSON.parse(text);
   } catch {
-    throw new Error('Gemini response is not valid JSON');
+    throw new Error('AI response is not valid JSON');
   }
   if (!parsed || typeof parsed !== 'object' || !('recommendations' in parsed) || !Array.isArray(parsed.recommendations)) {
-    throw new Error('Gemini response has an invalid structure');
+    throw new Error('AI response has an invalid structure');
   }
-  if (parsed.recommendations.length > 3) throw new Error('Gemini returned too many recommendations');
+  if (parsed.recommendations.length > 3) throw new Error('AI returned too many recommendations');
 
   const candidateById = new Map(candidates.map(item => [item.candidateId, item]));
   const seen = new Set<string>();
   return parsed.recommendations.map((item: unknown) => {
-    if (!item || typeof item !== 'object') throw new Error('Gemini recommendation is invalid');
+    if (!item || typeof item !== 'object') throw new Error('AI recommendation is invalid');
     const recommendation = item as Record<string, unknown>;
     const candidateId = recommendation.candidateId;
     const candidateData = typeof candidateId === 'string' ? candidateById.get(candidateId) : undefined;
-    if (!candidateData || seen.has(candidateData.candidateId)) throw new Error('Gemini selected an unknown or repeated candidate');
+    if (!candidateData || seen.has(candidateData.candidateId)) throw new Error('AI selected an unknown or repeated candidate');
     seen.add(candidateData.candidateId);
     const reason = recommendation.reason;
     const efficiencyAdvice = recommendation.efficiencyAdvice;
     const activitySuggestion = recommendation.activitySuggestion;
     if ([reason, efficiencyAdvice, activitySuggestion].some(value => typeof value !== 'string' || !value.trim())) {
-      throw new Error('Gemini recommendation is missing required explanations');
+      throw new Error('AI recommendation is missing required explanations');
     }
     const explanations = [reason, efficiencyAdvice, activitySuggestion] as string[];
     if (explanations.some(value => /(?:^|\D)(?:19|20)\d{2}\s*(?:[-/.년])\s*\d{1,2}\s*(?:[-/.월])\s*\d{1,2}\s*일?/.test(value))) {
-      throw new Error('Gemini narrative included an unverified date');
+      throw new Error('AI narrative included an unverified date');
     }
     return {
       ...candidateData,
