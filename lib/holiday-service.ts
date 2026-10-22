@@ -97,7 +97,7 @@ export async function getHolidayData(year: number): Promise<HolidayData> {
       const raw = body.items?.item;
       const items = raw ? Array.isArray(raw) ? raw : [raw] : [];
       if (!items.length) throw new Error('KASI returned no records');
-      official = items
+      const kasiHolidays = items
         .filter((item: any) => item.isHoliday === 'Y')
         .map((item: any): Holiday | null => {
           const value = String(item.locdate);
@@ -107,6 +107,8 @@ export async function getHolidayData(year: number): Promise<HolidayData> {
           return { date, name, kind: name.includes('대체') ? 'substitute' : name.includes('현충') ? 'memorial' : 'national' };
         })
         .filter((holiday: Holiday | null): holiday is Holiday => holiday !== null);
+      if (!kasiHolidays.length) throw new Error('KASI returned no valid holidays');
+      official = kasiHolidays;
       officialSource = '한국천문연구원 특일정보 API';
     } catch {
       // Keep validated local records when KASI is unavailable.

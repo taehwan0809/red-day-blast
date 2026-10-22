@@ -1,14 +1,27 @@
 import { GoogleGenAI } from '@google/genai';
 import { NextResponse } from 'next/server';
 import { buildGoldenAnalysisContext, resolveGeminiRecommendations, validateSelectedLeaveDates } from '@/lib/golden-analysis';
-import { classifyGeminiError, sanitizeGeminiErrorMessage, withOneTransientRetry } from '@/lib/gemini-errors';
+import { classifyGeminiError } from '@/lib/gemini-errors';
 import { getHolidayData, isValidHolidayData } from '@/lib/holiday-service';
 
 export const runtime = 'nodejs';
 export const maxDuration = 30;
 
 function requestId(request: Request) {
-  return request.headers.get('x-vercel-id') ?? request.headers.get('x-request-id') ?? 'unavailable';
+  const value = request.headers.get('x-vercel-id') ?? request.headers.get('x-request-id') ?? '';
+  return /^[a-zA-Z0-9._:-]{1,100}$/.test(value) ? value : 'unavailable';
+}
+
+function logFailure(
+  request: Request,
+  stage: string,
+  errorKind: string,
+  providerStatus: number | null,
+  responseStatus: number
+) {
+  console.error('[golden-analysis] failure', JSON.stringify({
+    requestId: requestId(request), stage, errorKind, providerStatus, responseStatus
+  }));
 }
 
 function recommendationSchema(candidateIds: string[]) {
@@ -39,7 +52,7 @@ function recommendationSchema(candidateIds: string[]) {
 export async function POST(request: Request) {
   const apiKey = process.env.GEMINI_API_KEY?.trim();
   if (!apiKey) {
-    console.error('[golden-analysis] configuration error', JSON.stringify({ requestId: requestId(request), errorCode: 'GEMINI_API_KEY_MISSING' }));
+    logFailure(request, 'configuration', 'api_key_missing', null, 503);
     return NextResponse.json({
       error: 'GEMINI_API_KEY_MISSING',
       message: 'AI 분석 설정이 아직 완료되지 않았어요. 잠시 후 다시 시도해 주세요.'
@@ -66,11 +79,11 @@ export async function POST(request: Request) {
   try {
     holidayData = await getHolidayData(year);
   } catch {
-    console.error('[golden-analysis] holiday lookup failed', JSON.stringify({ requestId: requestId(request), errorCode: 'HOLIDAY_DATA_LOOKUP_FAILED' }));
+    logFailure(request, 'holiday_lookup', 'holiday_data_unavailable', null, 503);
     return NextResponse.json({ error: 'HOLIDAY_DATA_UNAVAILABLE', message: `${year}년 공휴일 자료를 확인하지 못했어요. 잠시 후 다시 시도해 주세요.` }, { status: 503 });
   }
   if (!isValidHolidayData(holidayData, year)) {
-    console.error('[golden-analysis] invalid holiday payload', JSON.stringify({ requestId: requestId(request), errorCode: 'HOLIDAY_DATA_INVALID' }));
+    logFailure(request, 'holiday_validation', 'holiday_data_invalid', null, 503);
     return NextResponse.json({ error: 'HOLIDAY_DATA_INVALID', message: '공휴일 자료 형식이 올바르지 않아 분석할 수 없어요.' }, { status: 503 });
   }
   if (holidayData.status === 'unavailable') {
@@ -80,7 +93,7 @@ export async function POST(request: Request) {
     }, { status: 503 });
   }
   if (holidayData.holidays.length === 0) {
-    console.error('[golden-analysis] empty holiday payload', JSON.stringify({ requestId: requestId(request), errorCode: 'HOLIDAY_DATA_EMPTY' }));
+    logFailure(request, 'holiday_validation', 'holiday_data_empty', null, 503);
     return NextResponse.json({ error: 'HOLIDAY_DATA_EMPTY', message: `${year}년 공휴일 자료가 비어 있어 분석할 수 없어요.` }, { status: 503 });
   }
 
@@ -128,35 +141,25 @@ export async function POST(request: Request) {
 
   let responseText: string | undefined;
   try {
-    const ai = new GoogleGenAI({ apiKey });
-    const generate = () => ai.models.generateContent({
-      model: 'gemini-2.5-flash',
+    const ai = new GoogleGenAI({
+      apiKey,
+      httpOptions: {
+        timeout: 12_000,
+        retryOptions: { attempts: 2, initialDelay: 0.2, maxDelay: 0.5, jitter: 0 }
+      }
+    });
+    const response = await ai.models.generateContent({
+      model: 'gemini-3.8-flash',
       contents: prompt,
       config: {
         responseMimeType: 'application/json',
         responseJsonSchema: recommendationSchema(candidates.map(candidate => candidate.candidateId))
       }
     });
-    const response = await withOneTransientRetry(
-      generate,
-      failure => console.warn('[golden-analysis] transient Gemini failure; retrying once', JSON.stringify({
-        requestId: requestId(request),
-        providerStatus: failure.providerStatus,
-        errorCode: failure.errorCode,
-        providerMessage: sanitizeGeminiErrorMessage(failure.safeProviderMessage, apiKey)
-      })),
-      () => new Promise<void>(resolve => setTimeout(resolve, 200))
-    );
     responseText = response.text;
   } catch (error) {
     const failure = classifyGeminiError(error, apiKey);
-    console.error('[golden-analysis] Gemini provider failure', JSON.stringify({
-      requestId: requestId(request),
-      providerStatus: failure.providerStatus,
-      errorCode: failure.errorCode,
-      kind: failure.kind,
-      providerMessage: failure.safeProviderMessage
-    }));
+    logFailure(request, 'generate_content', failure.kind, failure.providerStatus, failure.responseStatus);
     return NextResponse.json({ error: failure.errorCode, message: failure.userMessage }, { status: failure.responseStatus });
   }
 
@@ -164,14 +167,12 @@ export async function POST(request: Request) {
   try {
     recommendations = resolveGeminiRecommendations(responseText, candidates);
   } catch (error) {
-    console.error('[golden-analysis] invalid Gemini response', JSON.stringify({
-      requestId: requestId(request),
-      errorCode: 'GEMINI_RESPONSE_INVALID',
-      message: sanitizeGeminiErrorMessage(error instanceof Error ? error.message : 'Response validation failed', apiKey)
-    }));
+    const invalidJson = error instanceof Error && error.message === 'Gemini response is not valid JSON';
+    const errorCode = invalidJson ? 'GEMINI_RESPONSE_JSON_INVALID' : 'GEMINI_RESPONSE_INVALID';
+    logFailure(request, 'response_validation', invalidJson ? 'json_parse_failed' : 'schema_validation_failed', null, 502);
     return NextResponse.json({
-      error: 'GEMINI_RESPONSE_INVALID',
-      message: '분석 결과를 확인하지 못했어요. 다시 분석해 주세요.'
+      error: errorCode,
+      message: invalidJson ? 'AI 응답을 JSON으로 읽지 못했어요. 다시 분석해 주세요.' : 'AI 응답 형식이 올바르지 않아요. 다시 분석해 주세요.'
     }, { status: 502 });
   }
 

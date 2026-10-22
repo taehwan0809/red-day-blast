@@ -1,5 +1,6 @@
 export type GeminiFailureKind =
   | 'invalid_key'
+  | 'access_denied'
   | 'model_unavailable'
   | 'request_rejected'
   | 'rate_limited'
@@ -45,10 +46,17 @@ export function classifyGeminiError(error: unknown, apiKey?: string): GeminiFail
   const safeProviderMessage = sanitizeGeminiErrorMessage(providerMessage, apiKey);
   const invalidKeyMessage = /api[ _-]?key.*(?:invalid|not valid|expired)|(?:invalid|not valid|expired).*api[ _-]?key/i.test(providerMessage);
 
-  if (status === 401 || status === 403 || (status === 400 && invalidKeyMessage)) {
+  if (status === 401 || (status === 400 && invalidKeyMessage)) {
     return {
-      kind: 'invalid_key', providerStatus: status, responseStatus: 503, errorCode: 'GEMINI_AUTH_FAILED',
-      userMessage: 'Gemini API 키가 유효하지 않거나 권한이 없어요. 서버 환경변수를 확인해 주세요.',
+      kind: 'invalid_key', providerStatus: status, responseStatus: 503, errorCode: 'GEMINI_AUTHENTICATION_FAILED',
+      userMessage: 'Gemini API 인증에 실패했어요. 서버 API 키 설정을 확인해 주세요.',
+      safeProviderMessage, retryable: false
+    };
+  }
+  if (status === 403) {
+    return {
+      kind: 'access_denied', providerStatus: status, responseStatus: 503, errorCode: 'GEMINI_ACCESS_DENIED',
+      userMessage: 'Gemini API 접근이 거부됐어요. 키 권한, 프로젝트 설정, 모델 접근 권한을 확인해 주세요.',
       safeProviderMessage, retryable: false
     };
   }
@@ -69,7 +77,7 @@ export function classifyGeminiError(error: unknown, apiKey?: string): GeminiFail
   if (status === 429) {
     return {
       kind: 'rate_limited', providerStatus: status, responseStatus: 429, errorCode: 'GEMINI_RATE_LIMITED',
-      userMessage: 'AI 요청이 잠시 많아요. 잠시 후 다시 분석해 주세요.',
+      userMessage: 'Gemini 사용량 또는 요청 한도에 도달했어요. 할당량을 확인한 뒤 다시 시도해 주세요.',
       safeProviderMessage, retryable: false
     };
   }
@@ -77,6 +85,13 @@ export function classifyGeminiError(error: unknown, apiKey?: string): GeminiFail
     return {
       kind: 'request_rejected', providerStatus: status, responseStatus: 502, errorCode: 'GEMINI_REQUEST_REJECTED',
       userMessage: 'Gemini가 분석 요청을 처리하지 못했어요. 서버 요청 형식을 확인해 주세요.',
+      safeProviderMessage, retryable: false
+    };
+  }
+  if (status === 408 || status === 504 || /timeout|timed out|aborted/i.test(providerMessage)) {
+    return {
+      kind: 'upstream_timeout', providerStatus: status, responseStatus: 504, errorCode: 'GEMINI_TIMEOUT',
+      userMessage: 'Gemini 응답 시간이 초과됐어요. 잠시 후 다시 시도해 주세요.',
       safeProviderMessage, retryable: false
     };
   }
@@ -98,13 +113,6 @@ export function classifyGeminiError(error: unknown, apiKey?: string): GeminiFail
     return {
       kind: 'upstream_error', providerStatus: status, responseStatus: 502, errorCode: 'GEMINI_UPSTREAM_ERROR',
       userMessage: 'Gemini 분석 요청에 실패했어요. 잠시 후 다시 시도해 주세요.',
-      safeProviderMessage, retryable: false
-    };
-  }
-  if (/timeout|timed out|aborted/i.test(providerMessage)) {
-    return {
-      kind: 'upstream_timeout', providerStatus: status, responseStatus: 504, errorCode: 'GEMINI_TIMEOUT',
-      userMessage: 'Gemini 응답 시간이 초과됐어요. 잠시 후 다시 시도해 주세요.',
       safeProviderMessage, retryable: false
     };
   }

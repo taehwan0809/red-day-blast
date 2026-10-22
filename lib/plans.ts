@@ -1,8 +1,8 @@
 ﻿import { createClient, type SupabaseClient } from '@supabase/supabase-js';
 export type PlanType='여행'|'휴식'|'공부'|'기타';
 export type RestPlan={id:string;title:string;start:string;end:string;type:PlanType;memo:string;createdAt:string};
-type PlanRow={id:string;user_id:string;title:string;start_date:string;end_date:string;plan_type:PlanType;memo:string;created_at:string};
-type PlanInsert={id?:string;user_id:string;title:string;start_date:string;end_date:string;plan_type:PlanType;memo?:string;created_at?:string};
+type PlanRow={id:string;user_id:string;local_id:string|null;title:string;start_date:string;end_date:string;plan_type:PlanType;memo:string;created_at:string};
+type PlanInsert={id?:string;user_id:string;local_id?:string|null;title:string;start_date:string;end_date:string;plan_type:PlanType;memo?:string;created_at?:string};
 type PlanUpdate=Partial<Omit<PlanInsert,'user_id'>>;
 type Database={public:{Tables:{rest_plans:{Row:PlanRow;Insert:PlanInsert;Update:PlanUpdate;Relationships:[]}};Views:Record<never,never>;Functions:Record<never,never>;Enums:Record<never,never>;CompositeTypes:Record<never,never>}};
 const KEY='red-day-blast:plans:v1';
@@ -22,5 +22,5 @@ export async function savePlan(plan:RestPlan):Promise<void>{if(!supabaseConfigur
 export async function updatePlan(id:string,patch:Omit<RestPlan,'id'|'createdAt'>):Promise<void>{if(!supabaseConfigured){const plans=readLocal();if(!writeLocal(plans.map(p=>p.id===id?{...p,...patch}:p)))throw new Error(storageError);return}const {supabase,user}=await requireUser();const {data,error}=await supabase.from('rest_plans').update({title:patch.title,start_date:patch.start,end_date:patch.end,plan_type:patch.type,memo:patch.memo}).eq('id',id).eq('user_id',user.id).select('id').maybeSingle();if(error||!data)throw new Error('계획을 수정하지 못했어요. 잠시 후 다시 시도해 주세요.')}
 export async function deletePlan(id:string):Promise<void>{if(!supabaseConfigured){if(!writeLocal(readLocal().filter(p=>p.id!==id)))throw new Error(storageError);return}const {supabase,user}=await requireUser();const {data,error}=await supabase.from('rest_plans').delete().eq('id',id).eq('user_id',user.id).select('id').maybeSingle();if(error||!data)throw new Error('계획을 삭제하지 못했어요. 잠시 후 다시 시도해 주세요.')}
 export function localPlanCount(){return typeof window==='undefined'?0:readLocal().length}
-export async function importLocalPlans(){if(!supabaseConfigured)return;const local=readLocal();if(!local.length)return;const {supabase,user}=await requireUser();const rows=local.map(p=>({user_id:user.id,title:p.title,start_date:p.start,end_date:p.end,plan_type:p.type,memo:p.memo}));const {error}=await supabase.from('rest_plans').insert(rows);if(error)throw new Error('기존 계획을 계정으로 옮기지 못했어요. 잠시 후 다시 시도해 주세요.');localStorage.removeItem(KEY);window.dispatchEvent(new Event('red-day-blast:plans'))}
+export async function importLocalPlans(){if(!supabaseConfigured)return;const local=readLocal();if(!local.length)return;const {supabase,user}=await requireUser();const rows=local.map(p=>({user_id:user.id,local_id:p.id,title:p.title,start_date:p.start,end_date:p.end,plan_type:p.type,memo:p.memo}));const {error}=await supabase.from('rest_plans').upsert(rows,{onConflict:'user_id,local_id',ignoreDuplicates:true});if(error)throw new Error('기존 계획을 계정으로 옮기지 못했어요. 잠시 후 다시 시도해 주세요.');localStorage.removeItem(KEY);window.dispatchEvent(new Event('red-day-blast:plans'))}
 

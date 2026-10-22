@@ -95,3 +95,4 @@ Supabase가 구성된 후 별도 계정 두 개로 CRUD 및 격리를 확인하�
 - `.gitignore`는 `.env*` 파일을 제외하며, 예시 파일 `.env.example`만 추적하도록 설정되어 있습니다. 실제 키를 저장소에 추가하지 마세요.
 - `npm test`는 캘린더 계산과 황금연휴 분석 후보·응답 검증 테스트를 실행합니다. `npm run typecheck`와 `npm run build`로 TypeScript 및 프로덕션 빌드를 확인하세요.
 - 실제 Gemini 생성 호출은 `GEMINI_API_KEY`가 필요합니다. Google/KASI 실 API, 실제 Supabase CRUD/RLS 격리, Vercel 배포 결과도 각 계정·키·배포 환경에서 별도로 확인해야 합니다.
+- Supabase 기존 프로젝트는 `20261021000100_create_rest_plans.sql` 다음에 `20261022000100_add_local_plan_import_id.sql`도 적용해야 localStorage 계획 이전을 재시도해도 중복되지 않습니다.

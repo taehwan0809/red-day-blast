@@ -4,14 +4,16 @@ import { classifyGeminiError, sanitizeGeminiErrorMessage, withOneTransientRetry 
 
 test('Gemini provider HTTP failures map to distinct safe response categories', () => {
   assert.equal(classifyGeminiError(Object.assign(new Error('Bad request'), { status: 400 })).errorCode, 'GEMINI_REQUEST_REJECTED');
-  assert.equal(classifyGeminiError(Object.assign(new Error('API key not valid'), { status: 400 })).errorCode, 'GEMINI_AUTH_FAILED');
-  assert.equal(classifyGeminiError(Object.assign(new Error('Unauthorized'), { status: 401 })).responseStatus, 503);
-  assert.equal(classifyGeminiError(Object.assign(new Error('Permission denied'), { status: 403 })).errorCode, 'GEMINI_AUTH_FAILED');
+  assert.equal(classifyGeminiError(Object.assign(new Error('API key not valid'), { status: 400 })).errorCode, 'GEMINI_AUTHENTICATION_FAILED');
+  assert.equal(classifyGeminiError(Object.assign(new Error('Unauthorized'), { status: 401 })).errorCode, 'GEMINI_AUTHENTICATION_FAILED');
+  assert.equal(classifyGeminiError(Object.assign(new Error('Permission denied'), { status: 403 })).errorCode, 'GEMINI_ACCESS_DENIED');
   assert.equal(classifyGeminiError(Object.assign(new Error('Model not found'), { status: 404 })).errorCode, 'GEMINI_MODEL_UNAVAILABLE');
   assert.equal(classifyGeminiError(Object.assign(new Error('Model gemini-2.5-flash not found'), { status: 400 })).errorCode, 'GEMINI_MODEL_UNAVAILABLE');
   assert.equal(classifyGeminiError(Object.assign(new Error('Quota exceeded'), { status: 429 })).responseStatus, 429);
   assert.equal(classifyGeminiError(Object.assign(new Error('Internal error'), { status: 500 })).errorCode, 'GEMINI_INTERNAL_ERROR');
   assert.equal(classifyGeminiError(Object.assign(new Error('Unavailable'), { status: 503 })).errorCode, 'GEMINI_SERVICE_UNAVAILABLE');
+  assert.equal(classifyGeminiError(Object.assign(new Error('Deadline exceeded'), { status: 504 })).responseStatus, 504);
+  assert.equal(classifyGeminiError(Object.assign(new Error('Request timeout'), { status: 408 })).errorCode, 'GEMINI_TIMEOUT');
   assert.equal(classifyGeminiError(new Error('Request timed out')).responseStatus, 504);
 });
 

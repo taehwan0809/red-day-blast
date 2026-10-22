@@ -5,7 +5,7 @@ import { Bookmark, CalendarDays, LoaderCircle, Plus, Sparkles, X } from 'lucide-
 import { SiteHeader } from '@/components/SiteHeader';
 import { PageTitle } from '@/components/PageTitle';
 import { useHolidays } from '@/lib/use-holidays';
-import { goldenOptions } from '@/lib/calendar';
+import { goldenOptions, koreaToday } from '@/lib/calendar';
 import { makePlan, savePlan } from '@/lib/plans';
 import type { AiGoldenRecommendation } from '@/lib/golden-analysis';
 
@@ -19,7 +19,7 @@ type AiGoldenResult = {
 };
 
 export default function GoldenPage() {
-  const [year, setYear] = useState(new Date().getFullYear());
+  const [year, setYear] = useState(koreaToday().getFullYear());
   const [saved, setSaved] = useState('');
   const [leaveDateInput, setLeaveDateInput] = useState('');
   const [selectedLeaveDates, setSelectedLeaveDates] = useState<string[]>([]);
@@ -135,7 +135,7 @@ export default function GoldenPage() {
               value={year}
               onChange={event => changeYear(Number(event.target.value))}
             >
-              {Array.from({ length: 9 }, (_, index) => new Date().getFullYear() - 3 + index)
+              {Array.from({ length: 9 }, (_, index) => koreaToday().getFullYear() - 3 + index)
                 .map(value => <option key={value}>{value}</option>)}
             </select>
           </label>
