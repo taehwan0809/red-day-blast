@@ -7,6 +7,7 @@ import { PageTitle } from '@/components/PageTitle';
 import { useHolidays } from '@/lib/use-holidays';
 import { filterUpcomingPeriods, goldenOptions, koreaDateKey, koreaToday } from '@/lib/calendar';
 import { makePlan, savePlan } from '@/lib/plans';
+import { runPlanSaveAction } from '@/lib/plan-errors';
 import { createGoldenAnalysisRequest, type AiGoldenRecommendation } from '@/lib/golden-analysis';
 import { openNativeDatePicker } from '@/lib/date-picker';
 
@@ -21,11 +22,18 @@ type AiGoldenResult = {
 };
 
 export default function GoldenPage() {
-  const analysisDate = koreaDateKey();
-  const dateInputRef = useRef<HTMLInputElement>(null);
+  const todayDate = koreaDateKey();
+  const analysisDateInputRef = useRef<HTMLInputElement>(null);
+  const leaveDateInputRef = useRef<HTMLInputElement>(null);
   const analysisRequestId = useRef(0);
   const [year, setYear] = useState(koreaToday().getFullYear());
+  const [analysisDate, setAnalysisDate] = useState(todayDate);
   const [saved, setSaved] = useState('');
+  const [saveError, setSaveError] = useState('');
+  const [loginRequired, setLoginRequired] = useState(false);
+  const [savingKey, setSavingKey] = useState('');
+  const [saveFeedbackKey, setSaveFeedbackKey] = useState('');
+  const savingRef = useRef(false);
   const [leaveDateInput, setLeaveDateInput] = useState('');
   const [selectedLeaveDates, setSelectedLeaveDates] = useState<string[]>([]);
   const [aiLoading, setAiLoading] = useState(false);
@@ -60,12 +68,11 @@ export default function GoldenPage() {
 
   async function analyzeWithAi() {
     const requestId = ++analysisRequestId.current;
-    const requestAnalysisDate = koreaDateKey();
     const requestLeaveDates = [...selectedLeaveDates];
     if (leaveDateInput && !requestLeaveDates.includes(leaveDateInput) && requestLeaveDates.length < 3) {
       requestLeaveDates.push(leaveDateInput);
     }
-    const requestData = createGoldenAnalysisRequest(year, requestAnalysisDate, requestLeaveDates);
+    const requestData = createGoldenAnalysisRequest(year, analysisDate, requestLeaveDates);
     setSelectedLeaveDates(requestLeaveDates);
     if (leaveDateInput && requestLeaveDates.includes(leaveDateInput)) setLeaveDateInput('');
     setAiLoading(true);
@@ -81,8 +88,8 @@ export default function GoldenPage() {
       if (!response.ok) throw new Error(result.message || 'AI 분석에 실패했어요. 다시 시도해 주세요.');
       if (!Array.isArray(result.recommendations)) throw new Error('AI 분석 결과를 읽을 수 없어요. 다시 시도해 주세요.');
       if (requestId !== analysisRequestId.current) return;
-      if (result.year !== requestData.year || result.analysisDate !== requestData.analysisDate || koreaDateKey() !== requestData.analysisDate) {
-        throw new Error('분석 기준 날짜가 바뀌었어요. 다시 분석해 주세요.');
+      if (result.year !== requestData.year || result.analysisDate !== requestData.analysisDate || analysisDate !== requestData.analysisDate || koreaDateKey() > requestData.analysisDate) {
+        throw new Error('분석 기준일이 바뀌었거나 오늘보다 이전이에요. 다시 분석해 주세요.');
       }
       setAiResult(result);
     } catch (error) {
@@ -95,9 +102,17 @@ export default function GoldenPage() {
   }
 
   async function save(option: GoldenCard) {
+    if (savingRef.current) return;
+    savingRef.current = true;
+    const key = `${option.start}-${option.end}-${option.leaveDates.join(',')}`;
+    setSavingKey(key);
+    setSaveFeedbackKey(key);
+    setSaved('');
+    setSaveError('');
+    setLoginRequired(false);
     const leaveCount = option.leaveDates.length;
     try {
-      await savePlan(makePlan({
+      const outcome = await runPlanSaveAction(() => savePlan(makePlan({
         title: `연차 ${leaveCount}일 · ${option.days}일 연휴`,
         start: option.start,
         end: option.end,
@@ -105,15 +120,22 @@ export default function GoldenPage() {
         memo: leaveCount
           ? `황금연휴 추천 · 연차 사용일 ${option.leaveDates.join(', ')}`
           : '황금연휴 탐색기에서 저장 · 연차 사용 없음'
-      }));
-      setSaved('내 계획에 저장했어요.');
-    } catch (error) {
-      setSaved(error instanceof Error ? error.message : '계획 저장에 실패했습니다.');
+      })));
+      if (outcome.kind === 'success') {
+        setSaved(outcome.message);
+      } else {
+        setLoginRequired(outcome.kind === 'login');
+        setSaveError(outcome.message);
+      }
+    } finally {
+      savingRef.current = false;
+      setSavingKey('');
     }
   }
 
   function renderCard(option: GoldenCard, label: string) {
     const leaveCount = option.leaveDates.length;
+    const cardKey = `${option.start}-${option.end}-${option.leaveDates.join(',')}`;
     return (
       <article key={`${option.start}-${option.end}-${leaveCount}`} className="bg-white p-5 md:p-6">
         <div className="flex items-start justify-between">
@@ -134,11 +156,21 @@ export default function GoldenPage() {
           </p>
         )}
         <button
+          type="button"
+          disabled={Boolean(savingKey)}
           onClick={() => void save(option)}
-          className="mt-5 inline-flex items-center gap-2 border border-black/15 px-3 py-2 text-xs font-bold hover:border-[#f04432] hover:text-[#f04432]"
+          className="mt-5 inline-flex items-center gap-2 border border-black/15 px-3 py-2 text-xs font-bold hover:border-[#f04432] hover:text-[#f04432] disabled:cursor-wait disabled:opacity-50"
         >
-          <Bookmark size={14} />계획에 저장
+          {savingKey === cardKey ? <LoaderCircle size={14} className="animate-spin" /> : <Bookmark size={14} />}
+          {savingKey === cardKey ? '저장 중…' : '계획에 저장'}
         </button>
+        {saveFeedbackKey === cardKey && saveError && (
+          <div className="mt-3 border-l-2 border-[#f04432] bg-[#fff4f1] p-3 text-xs text-[#64251e]" role="alert">
+            <p>{saveError}</p>
+            {loginRequired && <a href="/login?next=%2Fgolden" className="mt-2 inline-block font-bold underline">로그인 / 가입 후 돌아와 다시 저장</a>}
+          </div>
+        )}
+        {saveFeedbackKey === cardKey && saved && <p className="mt-3 text-xs font-semibold text-[#287345]" role="status">{saved} <a href="/plans" className="underline">내 계획 보기</a></p>}
       </article>
     );
   }
@@ -179,18 +211,49 @@ export default function GoldenPage() {
 
           <div className="mt-5 flex flex-wrap items-end gap-3 border-t border-white/15 pt-5">
             <div className="text-xs text-white/65">
-              휴가 날짜 선택 · 선택 사항 · 최대 3일
+              <label htmlFor="golden-analysis-date" className="font-semibold text-white">분석 기준일</label>
+              <p className="mt-1">이 날짜부터 이후의 연휴만 추천합니다.</p>
+              <label
+                onClick={() => openNativeDatePicker(analysisDateInputRef.current)}
+                className="relative mt-2 flex h-11 min-w-[230px] cursor-pointer items-center justify-between gap-2 border border-white/20 bg-[#171717] px-3 text-sm text-white focus-within:ring-2 focus-within:ring-[#f04432]"
+              >
+                <span aria-hidden="true">{analysisDate.replaceAll('-', '.')}</span>
+                <CalendarDays size={16} aria-hidden="true" />
+                <input
+                  id="golden-analysis-date"
+                  ref={analysisDateInputRef}
+                  type="date"
+                  min={todayDate}
+                  max="2100-12-31"
+                  value={analysisDate}
+                  onChange={event => {
+                    analysisRequestId.current++;
+                    setAiLoading(false);
+                    setAnalysisDate(event.target.value);
+                    setAiResult(null);
+                    setAiError('');
+                  }}
+                  className="absolute inset-0 h-full w-full cursor-pointer opacity-0"
+                  aria-label="분석 기준일"
+                />
+              </label>
+            </div>
+          </div>
+
+          <div className="mt-5 flex flex-wrap items-end gap-3 border-t border-white/15 pt-5">
+            <div className="text-xs text-white/65">
+              연차 사용일 선택 · 선택 사항 · 최대 3일
               <span className="mt-2 flex gap-2">
                 <label
-                  onClick={() => openNativeDatePicker(dateInputRef.current)}
+                  onClick={() => openNativeDatePicker(leaveDateInputRef.current)}
                   className="relative flex h-11 min-w-[230px] cursor-pointer items-center justify-between gap-2 border border-white/20 bg-[#171717] px-3 text-sm text-white focus-within:ring-2 focus-within:ring-[#f04432]"
                 >
                   <span aria-hidden="true">{leaveDateInput ? leaveDateInput.replaceAll('-', '.') : '날짜를 선택하세요'}</span>
                   <CalendarDays size={16} aria-hidden="true" />
                   <input
-                    ref={dateInputRef}
+                    ref={leaveDateInputRef}
                     type="date"
-                    min={year === Number(analysisDate.slice(0, 4)) && analysisDate > `${year}-01-01` ? analysisDate : `${year}-01-01`}
+                    min={analysisDate > `${year}-01-01` ? analysisDate : `${year}-01-01`}
                     max={`${year}-12-31`}
                     value={leaveDateInput}
                     onChange={event => {
@@ -201,7 +264,7 @@ export default function GoldenPage() {
                       setAiError('');
                     }}
                     className="absolute inset-0 h-full w-full cursor-pointer opacity-0"
-                    aria-label="분석에 반영할 연차 날짜"
+                    aria-label="분석할 연차 사용일"
                   />
                 </label>
                 <button
@@ -265,13 +328,16 @@ export default function GoldenPage() {
                 <span className="text-[10px] text-white/45">{aiResult.source ?? '공휴일 출처 미확인'} · 실제 후보 데이터 기준</span>
               </div>
               {aiResult.recommendations.length === 0 ? (
-                <p className="bg-white/5 p-4 text-sm text-white/65">현재 조건에서 추천 결과가 없어요. 휴가 날짜를 바꾸거나 다시 분석해 주세요.</p>
+                <p className="bg-white/5 p-4 text-sm text-white/65">선택한 날짜 이후에 조건에 맞는 연휴를 찾지 못했습니다. (기준일: {aiResult.analysisDate}) 기준일이나 연도를 바꿔 다시 분석해 주세요.</p>
               ) : (
                 <div className="grid gap-3 lg:grid-cols-3">
                   {aiResult.recommendations.map((recommendation, index) => (
                     <article key={recommendation.candidateId} className="bg-white p-4 text-[#111] md:p-5">
                       <div className="mono text-[10px] tracking-[.12em] text-[#f04432]">AI PICK {String(index + 1).padStart(2, '0')}</div>
                       <h4 className="mt-2 font-bold">{recommendation.startDate} — {recommendation.endDate}</h4>
+                      <p className="mt-1 text-[10px] text-black/45">
+                        기준일 {aiResult.analysisDate} · {recommendation.daysFromAnalysisDate === 0 ? '기준일부터 시작' : `기준일로부터 ${recommendation.daysFromAnalysisDate}일 뒤 시작`}
+                      </p>
                       <div className="mt-3 flex items-baseline gap-2 border-b border-black/10 pb-3">
                         <strong className="mono text-4xl text-[#f04432]">{recommendation.totalRestDays}</strong>
                         <span className="text-xs text-black/55">일 연속 휴식</span>
@@ -289,6 +355,7 @@ export default function GoldenPage() {
               )}
             </div>
           )}
+
         </section>
 
         {data.status === 'unavailable' ? (
@@ -316,11 +383,6 @@ export default function GoldenPage() {
               )}
             </section>
 
-            {saved && (
-              <p className="mt-5 text-xs font-semibold text-[#f04432]" role="status">
-                {saved} <a href="/plans" className="underline">내 계획 보기</a>
-              </p>
-            )}
             <p className="mt-8 border-t border-black/10 pt-4 text-[10px] text-black/40">
               공휴일 자료를 기준으로 계산했습니다.{data.loading ? ' 최신 자료 확인 중' : ''}
             </p>

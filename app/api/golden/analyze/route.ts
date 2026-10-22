@@ -1,10 +1,10 @@
 import OpenAI from 'openai';
 import { NextResponse } from 'next/server';
-import { buildGoldenAnalysisContext, resolveAiRecommendations, validateSelectedLeaveDates } from '@/lib/golden-analysis';
+import { buildGoldenAnalysisContext, rankGoldenCandidates, resolveAiRecommendations, validateSelectedLeaveDates } from '@/lib/golden-analysis';
 import { classifyGptOutputError, classifyOpenAiError } from '@/lib/openai-errors';
 import { getGptModel } from '@/lib/gpt-config';
 import { getHolidayData, isValidHolidayData } from '@/lib/holiday-service';
-import { koreaDateKey } from '@/lib/calendar';
+import { isDateKey, koreaDateKey } from '@/lib/calendar';
 
 export const runtime = 'nodejs';
 export const maxDuration = 30;
@@ -75,8 +75,11 @@ export async function POST(request: Request) {
   if (typeof year !== 'number' || !Number.isInteger(year) || year < 1900 || year > 2100) {
     return NextResponse.json({ error: 'INVALID_YEAR', message: '분석할 연도를 확인해 주세요.' }, { status: 400 });
   }
-  // The server's Seoul date is authoritative; the client value is diagnostic only.
-  const analysisDate = koreaDateKey();
+  const analysisDate = payload.analysisDate;
+  const today = koreaDateKey();
+  if (!isDateKey(analysisDate) || analysisDate < today) {
+    return NextResponse.json({ error: 'INVALID_ANALYSIS_DATE', message: '분석 기준일은 오늘 이후의 올바른 날짜로 선택해 주세요.' }, { status: 400 });
+  }
 
   let holidayData;
   try {
@@ -106,16 +109,16 @@ export async function POST(request: Request) {
   }
   const selectedLeaveDates = (payload.selectedLeaveDates ?? []) as string[];
   const context = buildGoldenAnalysisContext(holidayData, selectedLeaveDates, analysisDate);
-  const candidates = [
+  const candidates = rankGoldenCandidates([
     ...context.naturalBreaks,
     ...context.leaveOptions[1],
     ...context.leaveOptions[2],
     ...context.leaveOptions[3],
     ...context.selectedLeavePlans
-  ];
+  ]);
   if (process.env.NODE_ENV === 'development') {
     console.info('[golden-analysis] request', JSON.stringify({
-      year, analysisDate, clientAnalysisDateMatchesServer: payload.analysisDate === analysisDate,
+      year, analysisDate,
       selectedLeaveDateCount: selectedLeaveDates.length, candidateCount: candidates.length
     }));
   }
@@ -131,13 +134,15 @@ export async function POST(request: Request) {
 
   const prompt = [
     '당신은 한국의 연차와 휴일을 고려하는 여행·휴식 계획 도우미입니다.',
-    '후보 JSON만 근거로 가장 추천하는 기간을 최대 3개 고르세요. 날짜나 계산값을 새로 만들거나 고치지 마세요.',
-    '한국어로 이유, 연차 효율, 활용법을 각각 간결하게 작성하세요. candidateId는 입력 값만 쓰고 설명에 새 날짜나 기간 숫자를 넣지 마세요. 요청한 JSON 형식만 반환하세요.',
+    '후보 JSON만 근거로 가장 추천하는 기간을 최대 3개 고르세요. 후보는 기준일 이후만 포함합니다. 날짜나 계산값을 새로 만들거나 고치지 마세요.',
+    '총 연속 휴식 일수와 연차 효율을 우선 비교하고, 비슷한 후보는 기준일로부터 시작일까지의 거리가 짧은 후보를 우선하세요. 이유에는 기준일 이후 며칠 뒤 시작하는지, 연차가 필요한지와 효율을 후보 필드에 근거해 설명하세요.',
+    'candidateId는 입력 값만 쓰세요. 설명에 후보에 없는 날짜나 기간을 만들지 말고 요청한 JSON 형식만 반환하세요.',
     JSON.stringify({
       year: context.year,
+      analysisDate,
       holidayStatus: context.holidayStatus,
-      candidates: candidates.map(({ candidateId, startDate, endDate, totalRestDays, requiredLeaveDays, leaveDates, holidays, efficiency }) => ({
-        candidateId, startDate, endDate, totalRestDays, requiredLeaveDays, leaveDates, holidays, efficiency
+      candidates: candidates.map(({ candidateId, startDate, endDate, totalRestDays, daysFromAnalysisDate, requiredLeaveDays, leaveDates, holidays, efficiency }) => ({
+        candidateId, startDate, endDate, totalRestDays, daysFromAnalysisDate, requiredLeaveDays, leaveDates, holidays, efficiency
       }))
     })
   ].join('\n\n');
@@ -173,7 +178,7 @@ export async function POST(request: Request) {
 
   let recommendations;
   try {
-    recommendations = resolveAiRecommendations(responseText, candidates);
+    recommendations = rankGoldenCandidates(resolveAiRecommendations(responseText, candidates, analysisDate));
   } catch (error) {
     const failure = classifyGptOutputError(error);
     logFailure(request, 'response_validation', failure.errorKind, null, 502);

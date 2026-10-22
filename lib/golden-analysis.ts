@@ -1,4 +1,4 @@
-import { evaluateLeave, filterUpcomingPeriods, koreaDateKey, monthDays, recommendLeave, restPeriods, type LeaveImpact, type LeaveOption, type RestPeriod } from './calendar';
+import { daysBetweenDateKeys, evaluateLeave, filterUpcomingPeriods, koreaDateKey, monthDays, recommendLeave, restPeriods, type LeaveImpact, type LeaveOption, type RestPeriod } from './calendar';
 import type { Holiday, MergedHoliday } from './holidays';
 import type { HolidayData } from './holiday-service';
 
@@ -7,6 +7,7 @@ export type GoldenCandidate = {
   startDate: string;
   endDate: string;
   totalRestDays: number;
+  daysFromAnalysisDate: number;
   requiredLeaveDays: number;
   leaveDates: string[];
   holidays: string[];
@@ -35,12 +36,13 @@ export function createGoldenAnalysisRequest(year: number, analysisDate: string, 
   return { year, analysisDate, selectedLeaveDates: [...selectedLeaveDates] };
 }
 
-function candidate(id: string, period: RestPeriod | LeaveOption | LeaveImpact, leaveDates: string[]): GoldenCandidate {
+function candidate(id: string, period: RestPeriod | LeaveOption | LeaveImpact, leaveDates: string[], analysisDate: string): GoldenCandidate {
   return {
     candidateId: id,
     startDate: period.start,
     endDate: period.end,
     totalRestDays: period.days,
+    daysFromAnalysisDate: daysBetweenDateKeys(analysisDate, period.start),
     requiredLeaveDays: leaveDates.length,
     leaveDates,
     holidays: period.holidays,
@@ -48,8 +50,15 @@ function candidate(id: string, period: RestPeriod | LeaveOption | LeaveImpact, l
   };
 }
 
-function leaveCandidate(option: LeaveOption, prefix = 'leave'): GoldenCandidate {
-  return candidate(`${prefix}:${option.start}:${option.end}:${option.leaveDates.join(',')}`, option, option.leaveDates);
+function leaveCandidate(option: LeaveOption, analysisDate: string, prefix = 'leave'): GoldenCandidate {
+  return candidate(`${prefix}:${option.start}:${option.end}:${option.leaveDates.join(',')}`, option, option.leaveDates, analysisDate);
+}
+
+export function rankGoldenCandidates<T extends GoldenCandidate>(candidates: T[]): T[] {
+  return [...candidates].sort((a, b) =>
+    b.totalRestDays - a.totalRestDays || b.efficiency - a.efficiency ||
+    a.daysFromAnalysisDate - b.daysFromAnalysisDate || a.startDate.localeCompare(b.startDate)
+  );
 }
 
 export function validateSelectedLeaveDates(
@@ -87,18 +96,19 @@ export function buildGoldenAnalysisContext(
   const naturalBreaks = filterUpcomingPeriods(restPeriods(year, holidays), analysisDate)
     .sort((a, b) => b.days - a.days)
     .slice(0, 10)
-    .map(period => candidate(`natural:${period.start}:${period.end}`, period, []));
+    .map(period => candidate(`natural:${period.start}:${period.end}`, period, [], analysisDate));
   const allLeaveOptions = filterUpcomingPeriods(recommendLeave(year, holidays, 3), analysisDate);
   const leaveOptions = {
-    1: allLeaveOptions.filter(option => option.leaveDates.length === 1).slice(0, 5).map(option => leaveCandidate(option)),
-    2: allLeaveOptions.filter(option => option.leaveDates.length === 2).slice(0, 5).map(option => leaveCandidate(option)),
-    3: allLeaveOptions.filter(option => option.leaveDates.length === 3).slice(0, 5).map(option => leaveCandidate(option))
+    1: allLeaveOptions.filter(option => option.leaveDates.length === 1).slice(0, 5).map(option => leaveCandidate(option, analysisDate)),
+    2: allLeaveOptions.filter(option => option.leaveDates.length === 2).slice(0, 5).map(option => leaveCandidate(option, analysisDate)),
+    3: allLeaveOptions.filter(option => option.leaveDates.length === 3).slice(0, 5).map(option => leaveCandidate(option, analysisDate))
   };
   const selectedLeavePlans = selectedLeaveDates.length
     ? filterUpcomingPeriods(evaluateLeave(year, selectedLeaveDates, holidays), analysisDate).map((period: LeaveImpact) => candidate(
       `selected:${period.start}:${period.end}:${period.leaveDates.join(',')}`,
       period,
-      period.leaveDates
+      period.leaveDates,
+      analysisDate
     ))
     : [];
 
@@ -117,7 +127,8 @@ export function buildGoldenAnalysisContext(
 
 export function resolveAiRecommendations(
   text: string | undefined,
-  candidates: GoldenCandidate[]
+  candidates: GoldenCandidate[],
+  analysisDate?: string
 ): AiGoldenRecommendation[] {
   if (!text) throw new Error('AI returned an empty response');
   let parsed: unknown;
@@ -139,6 +150,14 @@ export function resolveAiRecommendations(
     const candidateId = recommendation.candidateId;
     const candidateData = typeof candidateId === 'string' ? candidateById.get(candidateId) : undefined;
     if (!candidateData || seen.has(candidateData.candidateId)) throw new Error('AI selected an unknown or repeated candidate');
+    if (analysisDate && (
+      candidateData.startDate < analysisDate || candidateData.endDate < candidateData.startDate ||
+      candidateData.leaveDates.some(date => date < analysisDate) ||
+      candidateData.daysFromAnalysisDate !== daysBetweenDateKeys(analysisDate, candidateData.startDate) ||
+      candidateData.totalRestDays !== daysBetweenDateKeys(candidateData.startDate, candidateData.endDate) + 1 ||
+      candidateData.requiredLeaveDays !== candidateData.leaveDates.length ||
+      candidateData.efficiency !== (candidateData.leaveDates.length ? Math.round(candidateData.totalRestDays / candidateData.leaveDates.length * 10) / 10 : 0)
+    )) throw new Error('AI selected a candidate outside the analysis date or with inconsistent dates');
     seen.add(candidateData.candidateId);
     const reason = recommendation.reason;
     const efficiencyAdvice = recommendation.efficiencyAdvice;
@@ -150,10 +169,16 @@ export function resolveAiRecommendations(
     if (explanations.some(value => /(?:^|\D)(?:19|20)\d{2}\s*(?:[-/.년])\s*\d{1,2}\s*(?:[-/.월])\s*\d{1,2}\s*일?/.test(value))) {
       throw new Error('AI narrative included an unverified date');
     }
+    const proximity = candidateData.daysFromAnalysisDate === 0
+      ? '분석 기준일부터 시작하는 후보예요.'
+      : `분석 기준일로부터 ${candidateData.daysFromAnalysisDate}일 뒤 시작하는 후보예요.`;
+    const efficiencySummary = candidateData.requiredLeaveDays
+      ? `연차 ${candidateData.requiredLeaveDays}일을 사용해 ${candidateData.totalRestDays}일 연속 쉬며, 연차 1일당 ${candidateData.efficiency}일 휴식입니다.`
+      : `연차 없이 ${candidateData.totalRestDays}일 연속 쉴 수 있습니다.`;
     return {
       ...candidateData,
-      reason: String(reason).trim().slice(0, 500),
-      efficiencyAdvice: String(efficiencyAdvice).trim().slice(0, 500),
+      reason: proximity,
+      efficiencyAdvice: efficiencySummary,
       activitySuggestion: String(activitySuggestion).trim().slice(0, 500)
     };
   });

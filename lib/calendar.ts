@@ -15,6 +15,12 @@ export function koreaDateKey(now = new Date()) {
   const value = (type: Intl.DateTimeFormatPartTypes) => parts.find(part => part.type === type)?.value ?? '';
   return `${value('year')}-${value('month')}-${value('day')}`;
 }
+export function isDateKey(value: unknown): value is string {
+  if (typeof value !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
+  const [year, month, day] = value.split('-').map(Number);
+  const date = new Date(Date.UTC(year, month - 1, day));
+  return date.getUTCFullYear() === year && date.getUTCMonth() === month - 1 && date.getUTCDate() === day;
+}
 const shiftDate = (key:string, offset:number) => {const [y,m,d]=key.split('-').map(Number); const date=new Date(y,m-1,d+offset); return dateKey(date.getFullYear(),date.getMonth(),date.getDate())};
 export function monthDays(year:number, month:number, holidayList:(Holiday|MergedHoliday)[]=HOLIDAYS[year]??[]): DayInfo[] {
   const total = new Date(year, month+1, 0).getDate();

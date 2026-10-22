@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { buildGoldenAnalysisContext, createGoldenAnalysisRequest, resolveAiRecommendations, validateSelectedLeaveDates } from './golden-analysis';
+import { buildGoldenAnalysisContext, createGoldenAnalysisRequest, rankGoldenCandidates, resolveAiRecommendations, validateSelectedLeaveDates } from './golden-analysis';
 import { HOLIDAYS, mergeHolidayData } from './holidays';
 import { isValidHolidayData, type HolidayData } from './holiday-service';
 
@@ -58,6 +58,9 @@ test('AI may explain only server-calculated candidate IDs and cannot invent date
   assert.equal(result.endDate, candidate.endDate);
   assert.equal(result.totalRestDays, candidate.totalRestDays);
   assert.equal(result.requiredLeaveDays, candidate.leaveDates.length);
+  assert.equal(result.daysFromAnalysisDate, candidate.daysFromAnalysisDate);
+  assert.match(result.reason, /분석 기준일로부터 \d+일 뒤 시작/);
+  assert.match(result.efficiencyAdvice, /연차 1일당/);
   assert.throws(() => resolveAiRecommendations(response.replace(candidate.candidateId, 'invented-id'), [candidate]), /unknown/);
   assert.throws(() => resolveAiRecommendations(response.replace('공휴일과 주말에 붙여 긴 휴식을 만들 수 있어요.', '2026-10-01부터 추천해요.'), [candidate]), /unverified date/);
   assert.throws(() => resolveAiRecommendations('{not json', [candidate]), /valid JSON/);
@@ -73,13 +76,43 @@ test('analysis candidates exclude periods and leave dates before the Seoul analy
   assert.ok(onAutumn.naturalBreaks.every((item, index, items) => index === 0 || items[index - 1].totalRestDays >= item.totalRestDays));
 });
 
-test('selected leave dates and a distinct analysis date are passed exactly in the request payload', () => {
-  assert.deepEqual(createGoldenAnalysisRequest(2026, '2026-10-22', ['2026-10-22']), {
-    year: 2026, analysisDate: '2026-10-22', selectedLeaveDates: ['2026-10-22']
+test('selected leave dates and the distinct October 23 analysis date are passed exactly in the request payload', () => {
+  assert.deepEqual(createGoldenAnalysisRequest(2026, '2026-10-23', ['2026-10-23']), {
+    year: 2026, analysisDate: '2026-10-23', selectedLeaveDates: ['2026-10-23']
   });
 });
 
 test('past selected vacation days are rejected against the analysis date', () => {
   assert.match(validateSelectedLeaveDates(2026, ['2026-04-30'], holidayData.holidays, '2026-10-22') ?? '', /지난 날짜/);
   assert.equal(validateSelectedLeaveDates(2026, ['2026-10-22'], holidayData.holidays, '2026-10-22'), null);
+});
+
+test('2026-10-23 analysis excludes February and ranks only later candidates', () => {
+  const context = buildGoldenAnalysisContext(holidayData, [], '2026-10-23');
+  const candidates = rankGoldenCandidates([
+    ...context.naturalBreaks, ...context.leaveOptions[1], ...context.leaveOptions[2], ...context.leaveOptions[3]
+  ]);
+  assert.ok(candidates.length > 0);
+  assert.ok(candidates.every(candidate => candidate.startDate >= '2026-10-23'));
+  assert.ok(candidates.every(candidate => candidate.leaveDates.every(date => date >= '2026-10-23')));
+  assert.ok(!candidates.some(candidate => candidate.startDate.startsWith('2026-02')));
+  assert.ok(candidates.every((candidate, index) => index === 0 || candidates[index - 1].totalRestDays >= candidate.totalRestDays));
+  assert.ok(candidates.every(candidate => candidate.daysFromAnalysisDate >= 0));
+});
+
+test('recommendation validation rejects a known candidate if its returned calendar data predates the cutoff', () => {
+  const context = buildGoldenAnalysisContext(holidayData, [], '2026-10-23');
+  const candidate = context.naturalBreaks[0];
+  const response = JSON.stringify({ recommendations: [{
+    candidateId: candidate.candidateId,
+    reason: '유효한 후보예요.', efficiencyAdvice: '연차 효율을 확인했어요.', activitySuggestion: '휴식을 계획해 보세요.'
+  }] });
+  assert.throws(() => resolveAiRecommendations(response, [{ ...candidate, startDate: '2026-02-14' }], '2026-10-23'), /outside the analysis date/);
+});
+
+test('no qualifying periods after the analysis date produces no candidate dates', () => {
+  const context = buildGoldenAnalysisContext(holidayData, [], '2026-12-31');
+  assert.equal(context.naturalBreaks.length, 0);
+  assert.equal(context.leaveOptions[1].length + context.leaveOptions[2].length + context.leaveOptions[3].length, 0);
+  assert.equal(context.selectedLeavePlans.length, 0);
 });
