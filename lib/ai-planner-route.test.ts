@@ -82,7 +82,7 @@ test('AI planner requests bounded JSON Object output and validates the matching 
     const result = await response.json();
     assert.equal(result.recommendations[0].candidateId, '2026-12-25:2026-12-28');
     assert.deepEqual(requestBody?.response_format, { type: 'json_object' });
-    assert.equal(requestBody?.max_tokens, 3000);
+    assert.equal(requestBody?.max_completion_tokens, 3000);
     const messages = requestBody?.messages as Array<{ content: string }>;
     assert.match(messages[1].content, /120자 이하/);
     assert.doesNotMatch(messages[1].content, /responseSchema/);

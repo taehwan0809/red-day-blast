@@ -34,9 +34,12 @@ test('Groq sends JSON mode and retries one transient 503 only once', async () =>
   globalThis.fetch = async (input, init) => {
     attempts++;
     assert.equal(input, GROQ_CHAT_COMPLETIONS_URL);
-    const payload = JSON.parse(String(init?.body)) as { model: string; response_format: { type: string } };
+    const payload = JSON.parse(String(init?.body)) as { model: string; response_format: { type: string }; max_completion_tokens: number; reasoning_effort?: string; max_tokens?: number };
     assert.equal(payload.model, 'test-model');
     assert.deepEqual(payload.response_format, { type: 'json_object' });
+    assert.equal(payload.max_completion_tokens, 100);
+    assert.equal(payload.max_tokens, undefined);
+    assert.equal(payload.reasoning_effort, undefined);
     return attempts === 1
       ? new Response('temporary', { status: 503 })
       : Response.json({ choices: [{ message: { content: '{"recommendations":[]}' } }] });
@@ -50,6 +53,30 @@ test('Groq sends JSON mode and retries one transient 503 only once', async () =>
     else process.env.GROQ_API_KEY = previousKey;
     if (previousModel === undefined) delete process.env.GROQ_MODEL;
     else process.env.GROQ_MODEL = previousModel;
+  }
+});
+
+test('Groq uses low reasoning effort for gpt-oss and the supported completion token limit field', async () => {
+  const previousKey = process.env.GROQ_API_KEY;
+  const previousModel = process.env.GROQ_MODEL;
+  const previousFetch = globalThis.fetch;
+  process.env.GROQ_API_KEY = 'test-groq-key';
+  process.env.GROQ_MODEL = 'openai/gpt-oss-20b';
+  globalThis.fetch = async (_input, init) => {
+    const payload = JSON.parse(String(init?.body)) as { model: string; response_format: { type: string }; max_completion_tokens: number; reasoning_effort?: string; max_tokens?: number };
+    assert.equal(payload.model, 'openai/gpt-oss-20b');
+    assert.deepEqual(payload.response_format, { type: 'json_object' });
+    assert.equal(payload.reasoning_effort, 'low');
+    assert.equal(payload.max_completion_tokens, 3000);
+    assert.equal(payload.max_tokens, undefined);
+    return Response.json({ choices: [{ message: { content: '{"recommendations":[]}' } }] });
+  };
+  try {
+    assert.equal(await generateGroqJson('JSON response test', 3000), '{"recommendations":[]}');
+  } finally {
+    globalThis.fetch = previousFetch;
+    if (previousKey === undefined) delete process.env.GROQ_API_KEY; else process.env.GROQ_API_KEY = previousKey;
+    if (previousModel === undefined) delete process.env.GROQ_MODEL; else process.env.GROQ_MODEL = previousModel;
   }
 });
 

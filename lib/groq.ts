@@ -23,6 +23,7 @@ export async function generateGroqJson(prompt: string, maxTokens: number): Promi
   const apiKey = process.env.GROQ_API_KEY?.trim();
   if (!apiKey) throw new Error('GROQ_API_KEY_MISSING');
   const model = getGroqModel();
+  const isGptOssModel = /^openai\/gpt-oss-(?:20b|120b)$/.test(model);
   let lastError: unknown;
 
   for (let attempt = 0; attempt < GROQ_MAX_ATTEMPTS; attempt++) {
@@ -41,7 +42,8 @@ export async function generateGroqJson(prompt: string, maxTokens: number): Promi
             { role: 'user', content: prompt }
           ],
           response_format: { type: 'json_object' },
-          max_tokens: maxTokens
+          ...(isGptOssModel ? { reasoning_effort: 'low' } : {}),
+          max_completion_tokens: maxTokens
         }),
         signal: AbortSignal.timeout(GROQ_REQUEST_TIMEOUT_MS)
       });
