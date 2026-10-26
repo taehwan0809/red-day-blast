@@ -23,7 +23,7 @@ const businessState = (place: GooglePlace, schedule: ScheduleInput, holidays: Se
   return open ? 'likely_open' : 'hours_mismatch';
 };
 async function lookupPlace(schedule: ScheduleInput, apiKey: string | undefined, holidays: Set<string>): Promise<SchedulePlace> {
-  const base: SchedulePlace = { scheduleId: schedule.id, bookingStatus: 'unavailable' };
+  const base: SchedulePlace = { scheduleId: schedule.id, status: 'not_found', bookingStatus: 'unavailable' };
   if (!apiKey) return { ...base, status: 'not_configured', businessStatus: 'hours_unknown' };
   if (!schedule.placeId && !schedule.placeName.trim() && !schedule.address.trim()) return { ...base, status: 'not_found', businessStatus: 'hours_unknown' };
   const query = schedule.placeId ? { placeId: schedule.placeId } : { textQuery: [schedule.placeName, schedule.address].filter(Boolean).join(' ') };
