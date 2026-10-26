@@ -19,6 +19,38 @@ function textOf(error: unknown) {
   return [value.name, value.message, value.status, value.error].map(String).join(' ').toLowerCase();
 }
 
+export function getSafeGeminiErrorDetails(error: unknown, sensitiveValues: string[] = []) {
+  const rawMessage = error instanceof Error ? error.message : '';
+  let message = rawMessage;
+  let code: string | null = null;
+  const jsonStart = rawMessage.indexOf('{');
+  const jsonEnd = rawMessage.lastIndexOf('}');
+  if (jsonStart >= 0 && jsonEnd > jsonStart) {
+    try {
+      const parsed = JSON.parse(rawMessage.slice(jsonStart, jsonEnd + 1)) as {
+        error?: { code?: unknown; status?: unknown; message?: unknown };
+      };
+      if (parsed.error && typeof parsed.error === 'object') {
+        if (typeof parsed.error.code === 'string') code = parsed.error.code;
+        else if (typeof parsed.error.status === 'string') code = parsed.error.status;
+        if (typeof parsed.error.message === 'string') message = parsed.error.message;
+      }
+    } catch {
+      // Keep the SDK's message when it is not a JSON error body.
+    }
+  }
+
+  for (const value of sensitiveValues) {
+    if (value.length >= 3) message = message.split(value).join('[redacted]');
+  }
+  message = message
+    .replace(/AIza[0-9A-Za-z_-]{20,}/g, '[redacted-api-key]')
+    .replace(/Bearer\s+\S+/gi, 'Bearer [redacted]')
+    .replace(/[\w.%+-]+@[\w.-]+\.[A-Za-z]{2,}/g, '[redacted-email]')
+    .slice(0, 1000);
+  return { code, message: message || 'No provider message available.' };
+}
+
 export function classifyGeminiError(error: unknown): GeminiFailure {
   const providerStatus = statusOf(error);
   const details = textOf(error);

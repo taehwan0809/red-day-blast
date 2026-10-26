@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server';
 import { buildPlannerCandidates, resolvePlannerRecommendations, validateExistingPlanRanges } from '@/lib/ai-planner';
 import { koreaDateKey } from '@/lib/calendar';
-import { classifyGeminiError } from '@/lib/gemini-errors';
+import { classifyGeminiError, getSafeGeminiErrorDetails } from '@/lib/gemini-errors';
 import { generateGeminiJson } from '@/lib/gemini';
 import { getHolidayData, isValidHolidayData } from '@/lib/holiday-service';
 import type { PlanType } from '@/lib/plans';
@@ -17,7 +17,7 @@ const planTypes: Record<typeof purposes[number], PlanType> = {
   travel: '여행', rest: '휴식', personal: '기타', leave: '휴식', other: '기타'
 };
 
-function recommendationSchema(candidateIds: string[]) {
+function recommendationSchema() {
   return {
     type: 'object',
     properties: {
@@ -27,7 +27,7 @@ function recommendationSchema(candidateIds: string[]) {
         items: {
           type: 'object',
           properties: {
-            candidateId: { type: 'string', enum: candidateIds },
+            candidateId: { type: 'string' },
             title: { type: 'string' },
             description: { type: 'string' },
             reason: { type: 'string' },
@@ -139,14 +139,20 @@ export async function POST(request: Request) {
 
   let recommendations;
   try {
-    const responseText = await generateGeminiJson(prompt, recommendationSchema(candidates.map(candidate => candidate.candidateId)), 1500);
+    const responseText = await generateGeminiJson(prompt, recommendationSchema(), 1500);
     recommendations = resolvePlannerRecommendations(responseText, candidates);
   } catch (error) {
     if (error instanceof Error && ['invalid_json', 'invalid_structure', 'too_many_recommendations', 'invalid_recommendation', 'unknown_candidate', 'invalid_explanation', 'unverified_date', 'inconsistent_candidate'].includes(error.message)) {
       return NextResponse.json({ error: 'GEMINI_RESPONSE_INVALID', message: 'Gemini가 검증할 수 없는 결과를 반환했어요. 다시 시도해 주세요.' }, { status: 502 });
     }
     const failure = classifyGeminiError(error);
-    console.error('[ai-planner] failure', JSON.stringify({ errorKind: failure.kind, providerStatus: failure.providerStatus }));
+    const providerDetails = getSafeGeminiErrorDetails(error, [apiKey, prompt, requestText, additionalConditions]);
+    console.error('[ai-planner] failure', JSON.stringify({
+      errorKind: failure.kind,
+      providerStatus: failure.providerStatus,
+      providerCode: providerDetails.code,
+      providerMessage: providerDetails.message
+    }));
     return NextResponse.json({ error: failure.errorCode, message: failure.userMessage }, { status: failure.responseStatus });
   }
 

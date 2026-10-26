@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { classifyGeminiError } from './gemini-errors';
+import { classifyGeminiError, getSafeGeminiErrorDetails } from './gemini-errors';
 import { DEFAULT_GEMINI_MODEL, getGeminiModel } from './gemini';
 
 test('Gemini quota, rate limit and temporary failures have distinct user-safe classifications', () => {
@@ -19,4 +19,20 @@ test('Gemini model can be overridden and defaults to the documented free-tier Fl
   assert.equal(getGeminiModel('  gemini-custom  '), 'gemini-custom');
   assert.equal(getGeminiModel('  '), DEFAULT_GEMINI_MODEL);
   assert.equal(DEFAULT_GEMINI_MODEL, 'gemini-3.8-flash');
+});
+
+test('provider error details preserve API diagnostics but redact prompt, key and email values', () => {
+  const prompt = 'private plan request';
+  const apiKey = 'AIza0123456789012345678901234567890123';
+  const error = new Error(JSON.stringify({ error: {
+    code: 400,
+    status: 'INVALID_ARGUMENT',
+    message: `Schema rejected ${prompt} using ${apiKey} for owner@example.com`
+  } }));
+  const details = getSafeGeminiErrorDetails(error, [apiKey, prompt]);
+  assert.equal(details.code, 'INVALID_ARGUMENT');
+  assert.match(details.message, /Schema rejected/);
+  assert.doesNotMatch(details.message, /private plan request|AIza|owner@example\.com/);
+  assert.match(details.message, /\[redacted\]/);
+  assert.match(details.message, /\[redacted-email\]/);
 });
