@@ -1,6 +1,7 @@
 import { GoogleGenAI } from '@google/genai';
 
 export const DEFAULT_GEMINI_MODEL = 'gemini-3.8-flash';
+export const GEMINI_REQUEST_TIMEOUT_MS = 10_000;
 
 export function getGeminiModel(configuredModel = process.env.GEMINI_MODEL) {
   return configuredModel?.trim() || DEFAULT_GEMINI_MODEL;
@@ -13,7 +14,7 @@ export async function generateGeminiJson(prompt: string, schema: unknown, maxOut
   const ai = new GoogleGenAI({
     apiKey,
     httpOptions: {
-      timeout: 9_000,
+      timeout: GEMINI_REQUEST_TIMEOUT_MS,
       retryOptions: {
         attempts: 2,
         initialDelay: 0.5,

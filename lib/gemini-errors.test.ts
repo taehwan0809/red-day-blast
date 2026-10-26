@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { classifyGeminiError, getSafeGeminiErrorDetails } from './gemini-errors';
-import { DEFAULT_GEMINI_MODEL, getGeminiModel } from './gemini';
+import { DEFAULT_GEMINI_MODEL, GEMINI_REQUEST_TIMEOUT_MS, getGeminiModel } from './gemini';
 
 test('Gemini quota, rate limit and temporary failures have distinct user-safe classifications', () => {
   assert.equal(classifyGeminiError(Object.assign(new Error('Invalid key'), { status: 401 })).errorCode, 'GEMINI_AUTHENTICATION_FAILED');
@@ -19,6 +19,10 @@ test('Gemini model can be overridden and defaults to the documented free-tier Fl
   assert.equal(getGeminiModel('  gemini-custom  '), 'gemini-custom');
   assert.equal(getGeminiModel('  '), DEFAULT_GEMINI_MODEL);
   assert.equal(DEFAULT_GEMINI_MODEL, 'gemini-3.8-flash');
+});
+
+test('Gemini request timeout meets the SDK minimum', () => {
+  assert.ok(GEMINI_REQUEST_TIMEOUT_MS >= 10_000);
 });
 
 test('provider error details preserve API diagnostics but redact prompt, key and email values', () => {
