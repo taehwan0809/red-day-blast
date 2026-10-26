@@ -1,8 +1,8 @@
 import { NextResponse } from 'next/server';
 import { buildPlannerCandidates, resolvePlannerRecommendations, validateExistingPlanRanges } from '@/lib/ai-planner';
 import { koreaDateKey } from '@/lib/calendar';
-import { classifyGeminiError, getSafeGeminiErrorDetails } from '@/lib/gemini-errors';
-import { generateGeminiJson } from '@/lib/gemini';
+import { classifyGroqError, getSafeGroqErrorDetails } from '@/lib/groq-errors';
+import { generateGroqJson } from '@/lib/groq';
 import { getHolidayData, isValidHolidayData } from '@/lib/holiday-service';
 import type { PlanType } from '@/lib/plans';
 
@@ -88,11 +88,17 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: 'INVALID_EXISTING_PLANS', message: '기존 계획 정보를 확인해 주세요.' }, { status: 400 });
   }
 
-  const apiKey = process.env.GEMINI_API_KEY?.trim();
+  const apiKey = process.env.GROQ_API_KEY?.trim();
   if (!apiKey) {
     return NextResponse.json({
-      error: 'GEMINI_API_KEY_MISSING',
-      message: 'Gemini API 설정이 완료되지 않았어요. 관리자에게 문의해 주세요.'
+      error: 'GROQ_API_KEY_MISSING',
+      message: 'Groq API 키가 설정되지 않았어요. 관리자에게 문의해 주세요.'
+    }, { status: 503 });
+  }
+  if (!process.env.GROQ_MODEL?.trim()) {
+    return NextResponse.json({
+      error: 'GROQ_MODEL_MISSING',
+      message: 'Groq 모델이 설정되지 않았어요. 관리자에게 문의해 주세요.'
     }, { status: 503 });
   }
 
@@ -129,7 +135,9 @@ export async function POST(request: Request) {
     '후보의 시작일과 종료일은 포함된 날짜이며 requiredLeaveDays는 후보 계산값입니다. 날짜는 candidateId로만 선택하고 설명 문장에 날짜를 쓰지 마세요.',
     '사용자가 제시한 희망 기간, 목적, 조건을 우선 반영하세요. 기존 계획과 겹치는 후보는 가능하면 피하고, 불가피하면 장점과 단점에서 겹침을 분명히 설명하세요.',
     '장소 운영, 예약 가능 여부, 여행 상품이나 가격처럼 확인되지 않은 사실을 주장하지 마세요. 후보가 요청에 맞지 않으면 recommendations를 빈 배열로 반환하세요.',
+    '응답은 다음 구조의 JSON 객체로만 반환하세요. 날짜와 연차 값은 후보에 있는 값에서 새로 쓰지 말고 candidateId로 후보를 선택하세요.',
     JSON.stringify({
+      responseFormat: { recommendations: [{ candidateId: 'candidate ID', title: '계획 제목', description: '계획 설명', reason: '추천 이유', advantages: '장점', disadvantages: '고려할 점' }] },
       requestText, purpose: purposeLabels[purpose as typeof purposes[number]], month, maxLeaveDays, targetDays,
       additionalConditions, existingPlansChecked: existingPlansAvailable,
       existingPlanRanges: existingPlansAvailable ? existingPlans : [],
@@ -139,14 +147,14 @@ export async function POST(request: Request) {
 
   let recommendations;
   try {
-    const responseText = await generateGeminiJson(prompt, recommendationSchema(), 1500);
+    const responseText = await generateGroqJson(prompt, 1500);
     recommendations = resolvePlannerRecommendations(responseText, candidates);
   } catch (error) {
     if (error instanceof Error && ['invalid_json', 'invalid_structure', 'too_many_recommendations', 'invalid_recommendation', 'unknown_candidate', 'invalid_explanation', 'unverified_date', 'inconsistent_candidate'].includes(error.message)) {
-      return NextResponse.json({ error: 'GEMINI_RESPONSE_INVALID', message: 'Gemini가 검증할 수 없는 결과를 반환했어요. 다시 시도해 주세요.' }, { status: 502 });
+      return NextResponse.json({ error: 'GROQ_RESPONSE_INVALID', message: 'AI가 검증할 수 없는 결과를 반환했어요. 다시 시도해 주세요.' }, { status: 502 });
     }
-    const failure = classifyGeminiError(error);
-    const providerDetails = getSafeGeminiErrorDetails(error, [apiKey, prompt, requestText, additionalConditions]);
+    const failure = classifyGroqError(error);
+    const providerDetails = getSafeGroqErrorDetails(error, [apiKey, prompt, requestText, additionalConditions]);
     console.error('[ai-planner] failure', JSON.stringify({
       errorKind: failure.kind,
       providerStatus: failure.providerStatus,

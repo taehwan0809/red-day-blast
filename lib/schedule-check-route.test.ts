@@ -2,11 +2,13 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { POST } from '../app/api/schedule-check/analyze/route';
 
-test('without Google Maps and Gemini keys the API still returns deterministic overlap checks and configuration states', async () => {
+test('without Google Maps and Groq settings the API still returns deterministic overlap checks and configuration states', async () => {
   const oldMaps = process.env.GOOGLE_MAPS_API_KEY;
-  const oldGemini = process.env.GEMINI_API_KEY;
+  const oldGroqKey = process.env.GROQ_API_KEY;
+  const oldGroqModel = process.env.GROQ_MODEL;
   delete process.env.GOOGLE_MAPS_API_KEY;
-  delete process.env.GEMINI_API_KEY;
+  delete process.env.GROQ_API_KEY;
+  delete process.env.GROQ_MODEL;
   try {
     const schedules = [
       { id:'a', title:'첫 일정', startDate:'2026-10-23', startTime:'10:00', endDate:'2026-10-23', endTime:'11:30', placeName:'', address:'', placeId:'', memo:'' },
@@ -21,7 +23,8 @@ test('without Google Maps and Gemini keys the API still returns deterministic ov
     assert.ok(data.issues.some((issue: { type:string }) => issue.type === 'time_overlap'));
   } finally {
     if (oldMaps === undefined) delete process.env.GOOGLE_MAPS_API_KEY; else process.env.GOOGLE_MAPS_API_KEY = oldMaps;
-    if (oldGemini === undefined) delete process.env.GEMINI_API_KEY; else process.env.GEMINI_API_KEY = oldGemini;
+    if (oldGroqKey === undefined) delete process.env.GROQ_API_KEY; else process.env.GROQ_API_KEY = oldGroqKey;
+    if (oldGroqModel === undefined) delete process.env.GROQ_MODEL; else process.env.GROQ_MODEL = oldGroqModel;
   }
 });
 

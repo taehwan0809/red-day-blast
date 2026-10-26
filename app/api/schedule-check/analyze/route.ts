@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
-import { generateGeminiJson } from '@/lib/gemini';
-import { classifyGeminiError } from '@/lib/gemini-errors';
+import { generateGroqJson } from '@/lib/groq';
+import { classifyGroqError, getSafeGroqErrorDetails } from '@/lib/groq-errors';
 import { getHolidayData } from '@/lib/holiday-service';
 import { compareSchedules, detectTimeOverlaps, makeTravelIssue, safeAiSuggestions, validateSchedules, type ScheduleInput, type ScheduleIssue, type SchedulePlace } from '@/lib/schedule-check';
 
@@ -117,15 +117,22 @@ export async function POST(request: Request) {
   let summary = issues.length ? '일정의 시간과 장소 정보를 확인해 보세요.' : '확인 가능한 일정 시간 충돌은 없습니다.';
   let suggestions: ReturnType<typeof safeAiSuggestions> = [];
   let aiStatus: 'ok' | 'not_configured' | 'error' = 'not_configured';
-  let aiMessage = 'Gemini API 키가 설정되지 않아 서버 계산 결과만 표시합니다.';
-  const geminiKey = process.env.GEMINI_API_KEY?.trim();
-  if (geminiKey) {
+  let aiMessage = 'Groq API 설정이 완료되지 않아 서버 계산 결과만 표시합니다.';
+  const groqKey = process.env.GROQ_API_KEY?.trim();
+  const groqModel = process.env.GROQ_MODEL?.trim();
+  if (groqKey && groqModel) {
     try {
-      const responseText = await generateGeminiJson(
-        '당신은 한국어 일정 충돌 설명 도우미입니다. 서버가 제공한 일정과 확정 이슈만 설명하고, 확인되지 않은 장소·영업·예약·이동 정보를 만들지 마세요. 대안은 이슈가 있는 단일 일정의 시각만 조정하고 날짜와 장소명은 유지하세요. 사용자 동의 전에 원 일정이 변경되지 않습니다. 이동시간 이슈는 충분한 버퍼를 확보하는 시간 변경안을 제안하세요. 사유가 없으면 빈 suggestions를 반환하세요.\n\n' + JSON.stringify({ schedules: selected.map(s => ({ id:s.id, title:s.title, startDate:s.startDate, startTime:s.startTime, endDate:s.endDate, endTime:s.endTime, placeName:s.placeName })), issues, places: places.map(p => ({ scheduleId:p.scheduleId, status:p.status, businessStatus:p.businessStatus })) }),
-        suggestionSchema(selected.map(s => s.id)),
-        1300
-      );
+      const prompt = [
+        '당신은 한국어 일정 충돌 설명 도우미입니다. 서버가 제공한 일정과 확정 이슈만 설명하고, 확인되지 않은 장소·영업·예약·이동 정보를 만들지 마세요. 대안은 이슈가 있는 단일 일정의 시각만 조정하고 날짜와 장소명은 유지하세요. 사용자 동의 전에 원 일정이 변경되지 않습니다. 이동시간 이슈는 충분한 버퍼를 확보하는 시간 변경안을 제안하세요. 사유가 없으면 빈 suggestions를 반환하세요.',
+        '응답은 다음 JSON 구조에 맞춰 반환하세요. scheduleIds에는 입력된 ID 중 하나만 포함하고, 다른 필드값을 만들지 마세요.',
+        JSON.stringify({
+          responseFormat: suggestionSchema(selected.map(s => s.id)),
+          schedules: selected.map(s => ({ id:s.id, title:s.title, startDate:s.startDate, startTime:s.startTime, endDate:s.endDate, endTime:s.endTime, placeName:s.placeName })),
+          issues,
+          places: places.map(p => ({ scheduleId:p.scheduleId, status:p.status, businessStatus:p.businessStatus }))
+        })
+      ].join('\n\n');
+      const responseText = await generateGroqJson(prompt, 1300);
       const data = JSON.parse(responseText || '{}') as { summary?: unknown };
       const safe = safeAiSuggestions(data, selected);
       if (typeof data.summary !== 'string' || data.summary.length > 500) throw new Error('invalid summary');
@@ -135,11 +142,13 @@ export async function POST(request: Request) {
       aiMessage = '';
     } catch (error) {
       aiStatus = 'error';
-      const failure = classifyGeminiError(error);
-      aiMessage = error instanceof SyntaxError ? 'Gemini 응답을 읽지 못했어요. 서버 계산 결과를 확인해 주세요.' : failure.userMessage;
-      console.error('[schedule-check] failure', JSON.stringify({ requestId, stage: 'ai_response', errorKind: error instanceof SyntaxError ? 'invalid_json' : failure.kind, providerStatus: failure.providerStatus }));
+      const failure = classifyGroqError(error);
+      aiMessage = error instanceof SyntaxError ? 'AI 응답을 읽지 못했어요. 서버 계산 결과를 확인해 주세요.' : failure.userMessage;
+      const details = getSafeGroqErrorDetails(error, [groqKey, groqModel]);
+      console.error('[schedule-check] failure', JSON.stringify({ requestId, stage: 'ai_response', errorKind: error instanceof SyntaxError ? 'invalid_json' : failure.kind, providerStatus: failure.providerStatus, providerCode: details.code, providerMessage: details.message }));
     }
   } else {
+    aiMessage = groqKey ? 'GROQ_MODEL 설정이 없어 서버 계산 결과만 표시합니다.' : 'GROQ_API_KEY가 설정되지 않아 서버 계산 결과만 표시합니다.';
     console.info('[schedule-check] analysis', JSON.stringify({ requestId, aiStatus, issueCount: issues.length, scheduleCount: selected.length }));
   }
   return NextResponse.json({ checkedAt: checkTime, summary, issues, places, suggestions, aiStatus, aiMessage, mapsStatus: mapsKey ? 'configured' : 'not_configured', counts: { conflicts: issues.filter(x => x.level === 'high').length, risks: issues.filter(x => x.level === 'medium').length, checks: issues.filter(x => x.level === 'info').length } }, { headers: { 'Cache-Control': 'no-store' } });

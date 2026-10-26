@@ -14,18 +14,41 @@ const validRequest = {
   existingPlans: []
 };
 
-test('AI planner returns a clear configuration response when the Gemini key is missing', async () => {
-  const previousKey = process.env.GEMINI_API_KEY;
-  delete process.env.GEMINI_API_KEY;
+test('AI planner returns a clear configuration response when the Groq key is missing', async () => {
+  const previousGroqKey = process.env.GROQ_API_KEY;
+  const previousGroqModel = process.env.GROQ_MODEL;
+  delete process.env.GROQ_API_KEY;
+  delete process.env.GROQ_MODEL;
   try {
     const response = await POST(new Request('http://localhost/api/ai-planner/analyze', {
       method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(validRequest)
     }));
     assert.equal(response.status, 503);
-    assert.equal((await response.json()).error, 'GEMINI_API_KEY_MISSING');
+    assert.equal((await response.json()).error, 'GROQ_API_KEY_MISSING');
   } finally {
-    if (previousKey === undefined) delete process.env.GEMINI_API_KEY;
-    else process.env.GEMINI_API_KEY = previousKey;
+    if (previousGroqKey === undefined) delete process.env.GROQ_API_KEY;
+    else process.env.GROQ_API_KEY = previousGroqKey;
+    if (previousGroqModel === undefined) delete process.env.GROQ_MODEL;
+    else process.env.GROQ_MODEL = previousGroqModel;
+  }
+});
+
+test('AI planner requires an explicitly selected Groq model', async () => {
+  const previousKey = process.env.GROQ_API_KEY;
+  const previousModel = process.env.GROQ_MODEL;
+  process.env.GROQ_API_KEY = 'test-key-not-used';
+  delete process.env.GROQ_MODEL;
+  try {
+    const response = await POST(new Request('http://localhost/api/ai-planner/analyze', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(validRequest)
+    }));
+    assert.equal(response.status, 503);
+    assert.equal((await response.json()).error, 'GROQ_MODEL_MISSING');
+  } finally {
+    if (previousKey === undefined) delete process.env.GROQ_API_KEY;
+    else process.env.GROQ_API_KEY = previousKey;
+    if (previousModel === undefined) delete process.env.GROQ_MODEL;
+    else process.env.GROQ_MODEL = previousModel;
   }
 });
 
