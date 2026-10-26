@@ -115,7 +115,7 @@ export function validatePlannerRecommendations(parsed: unknown, candidates: Plan
 
     const fields = ['title', 'description', 'reason', 'advantages', 'disadvantages'] as const;
     for (const field of fields) {
-      if (typeof item[field] !== 'string' || !item[field].trim() || item[field].length > (field === 'title' ? 80 : 500)) {
+      if (typeof item[field] !== 'string' || !item[field].trim() || item[field].length > (field === 'title' ? 80 : 120)) {
         throw new Error('invalid_explanation');
       }
       if (/(?:19|20)\d{2}[-/.년]\s?\d{1,2}[-/.월]\s?\d{1,2}일?|\d{1,2}월\s?\d{1,2}일/.test(item[field] as string)) {

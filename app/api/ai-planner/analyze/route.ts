@@ -17,33 +17,6 @@ const planTypes: Record<typeof purposes[number], PlanType> = {
   travel: '여행', rest: '휴식', personal: '기타', leave: '휴식', other: '기타'
 };
 
-function recommendationSchema() {
-  return {
-    type: 'object',
-    properties: {
-      recommendations: {
-        type: 'array',
-        maxItems: 3,
-        items: {
-          type: 'object',
-          properties: {
-            candidateId: { type: 'string' },
-            title: { type: 'string' },
-            description: { type: 'string' },
-            reason: { type: 'string' },
-            advantages: { type: 'string' },
-            disadvantages: { type: 'string' }
-          },
-          required: ['candidateId', 'title', 'description', 'reason', 'advantages', 'disadvantages'],
-          additionalProperties: false
-        }
-      }
-    },
-    required: ['recommendations'],
-    additionalProperties: false
-  };
-}
-
 export async function POST(request: Request) {
   let body: unknown;
   try {
@@ -136,10 +109,10 @@ export async function POST(request: Request) {
     '후보의 시작일과 종료일은 포함된 날짜이며 requiredLeaveDays는 후보 계산값입니다. 날짜는 candidateId로만 선택하고 설명 문장에 날짜를 쓰지 마세요.',
     '사용자가 제시한 희망 기간, 목적, 조건을 우선 반영하세요. 기존 계획과 겹치는 후보는 가능하면 피하고, 불가피하면 장점과 단점에서 겹침을 분명히 설명하세요.',
     '장소 운영, 예약 가능 여부, 여행 상품이나 가격처럼 확인되지 않은 사실을 주장하지 마세요. 후보가 요청에 맞지 않으면 recommendations를 빈 배열로 반환하세요.',
-    '응답은 json object 하나만 반환하세요. Markdown fence, 주석, 앞뒤 설명은 금지합니다. recommendations는 0~3개 배열이며, 각 항목은 responseSchema의 필수 문자열 필드를 모두 포함하고 다른 속성은 추가하지 마세요.',
-    'candidateId만 입력 후보에서 선택하고 날짜와 연차 수는 출력하지 마세요. 서버가 해당 값을 계산 결과로 채웁니다.',
+    '응답은 아래 필드만 포함하는 JSON object 하나로 반환하세요. Markdown fence, 주석, 앞뒤 설명은 금지합니다. recommendations는 0~3개 배열이며 candidateId와 모든 설명 필드는 문자열입니다.',
+    '항목 구조: {"candidateId":"후보 ID","title":"제목","description":"설명","reason":"추천 이유","advantages":"장점","disadvantages":"고려할 점"}. 제목은 80자 이하, 나머지 설명은 각각 120자 이하로 작성하세요. 날짜는 설명 필드에 쓰지 마세요.',
+    'candidateId만 입력 후보에서 선택하고 날짜와 연차 수는 출력하지 마세요. 서버가 해당 값을 계산 결과로 채웁니다. 다른 필드는 추가하지 마세요.',
     JSON.stringify({
-      responseSchema: recommendationSchema(),
       request: {
         requestText, purpose: purposeLabels[purpose as typeof purposes[number]], month, maxLeaveDays, targetDays,
         additionalConditions, existingPlansChecked: existingPlansAvailable,
@@ -151,7 +124,7 @@ export async function POST(request: Request) {
 
   let responseText: string | undefined;
   try {
-    responseText = await generateGroqJson(prompt, 1500);
+    responseText = await generateGroqJson(prompt, 3000);
   } catch (error) {
     const failure = classifyGroqError(error);
     const providerDetails = getSafeGroqErrorDetails(error, [apiKey, prompt, requestText, additionalConditions]);
@@ -159,8 +132,10 @@ export async function POST(request: Request) {
       errorKind: failure.kind,
       providerStatus: failure.providerStatus,
       providerCode: providerDetails.code,
+      providerType: providerDetails.type,
       providerMessage: providerDetails.message,
-      failedGenerationPreview: providerDetails.failedGeneration
+      providerResponseShape: providerDetails.responseShape,
+      failedGenerationPreview: providerDetails.failedGeneration ?? null
     }));
     return NextResponse.json({ error: failure.errorCode, message: failure.userMessage }, { status: failure.responseStatus });
   }

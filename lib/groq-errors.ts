@@ -23,21 +23,55 @@ export function getSafeGroqErrorDetails(error: unknown, sensitiveValues: string[
   const rawMessage = error instanceof Error ? error.message : '';
   let message = rawMessage;
   let code: string | null = null;
+  let type: string | null = null;
   let failedGeneration: string | undefined;
+  let responseShape = {
+    isJson: false,
+    topLevelType: 'unknown',
+    hasError: false,
+    errorIsObject: false,
+    errorFields: [] as string[],
+    failedGenerationType: 'missing',
+    failedGenerationLength: null as number | null,
+    failedGenerationEmpty: null as boolean | null
+  };
   const jsonStart = rawMessage.indexOf('{');
   const jsonEnd = rawMessage.lastIndexOf('}');
   if (jsonStart >= 0 && jsonEnd > jsonStart) {
     try {
-      const parsed = JSON.parse(rawMessage.slice(jsonStart, jsonEnd + 1)) as {
-        error?: { code?: unknown; type?: unknown; message?: unknown; failed_generation?: unknown };
-        failed_generation?: unknown;
+      const parsed: unknown = JSON.parse(rawMessage.slice(jsonStart, jsonEnd + 1));
+      const topLevel = parsed && typeof parsed === 'object' && !Array.isArray(parsed)
+        ? parsed as Record<string, unknown>
+        : null;
+      const rawError = topLevel?.error;
+      const errorObject = rawError && typeof rawError === 'object' && !Array.isArray(rawError)
+        ? rawError as Record<string, unknown>
+        : null;
+      const payload = errorObject ?? topLevel;
+      const knownFields = ['code', 'type', 'message', 'failed_generation'];
+      const generation = payload?.failed_generation ?? topLevel?.failed_generation;
+      const generationType = generation === undefined ? 'missing'
+        : generation === null ? 'null'
+          : Array.isArray(generation) ? 'array'
+            : typeof generation === 'object' ? 'object'
+              : typeof generation;
+      const generationLength = typeof generation === 'string' || Array.isArray(generation)
+        ? generation.length
+        : null;
+      responseShape = {
+        isJson: true,
+        topLevelType: Array.isArray(parsed) ? 'array' : parsed === null ? 'null' : typeof parsed,
+        hasError: Boolean(topLevel && Object.hasOwn(topLevel, 'error')),
+        errorIsObject: errorObject !== null,
+        errorFields: knownFields.filter(field => Boolean(payload && Object.hasOwn(payload, field))),
+        failedGenerationType: generationType,
+        failedGenerationLength: generationLength,
+        failedGenerationEmpty: typeof generation === 'string' ? generation.length === 0 : null
       };
-      const payload: { code?: unknown; type?: unknown; message?: unknown; failed_generation?: unknown } =
-        parsed.error && typeof parsed.error === 'object' ? parsed.error : parsed;
-      if (typeof payload.code === 'string') code = payload.code;
-      else if (typeof payload.type === 'string') code = payload.type;
-      if (typeof payload.message === 'string') message = payload.message;
-      const generation = payload.failed_generation ?? parsed.failed_generation;
+      if (typeof payload?.code === 'string') code = payload.code;
+      else if (typeof payload?.type === 'string') code = payload.type;
+      if (typeof payload?.type === 'string') type = payload.type;
+      if (typeof payload?.message === 'string') message = payload.message;
       if (typeof generation === 'string') failedGeneration = generation;
       else if (generation !== undefined) failedGeneration = JSON.stringify(generation);
     } catch {
@@ -47,7 +81,9 @@ export function getSafeGroqErrorDetails(error: unknown, sensitiveValues: string[
 
   return {
     code,
+    type: type ? sanitizeProviderText(type, sensitiveValues, 100) : null,
     message: sanitizeProviderText(message, sensitiveValues, 1000) || 'No provider message available.',
+    responseShape,
     failedGeneration: failedGeneration === undefined
       ? undefined
       : sanitizeFailedGeneration(failedGeneration, sensitiveValues)

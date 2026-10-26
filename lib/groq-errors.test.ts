@@ -89,6 +89,30 @@ test('Groq provider diagnostics redact API keys and user-provided sensitive valu
   assert.match(details.message, /\[redacted-email\]/);
 });
 
+test('empty failed_generation remains distinguishable from a missing field without logging raw response text', () => {
+  const error = new Error(JSON.stringify({ error: {
+    type: 'invalid_request_error',
+    code: 'json_validate_failed',
+    message: 'Failed to validate JSON. Please adjust your prompt.',
+    failed_generation: ''
+  } }));
+  const details = getSafeGroqErrorDetails(error, ['private user request']);
+  assert.equal(details.type, 'invalid_request_error');
+  assert.equal(details.message, 'Failed to validate JSON. Please adjust your prompt.');
+  assert.deepEqual(details.responseShape, {
+    isJson: true,
+    topLevelType: 'object',
+    hasError: true,
+    errorIsObject: true,
+    errorFields: ['code', 'type', 'message', 'failed_generation'],
+    failedGenerationType: 'string',
+    failedGenerationLength: 0,
+    failedGenerationEmpty: true
+  });
+  assert.equal(details.failedGeneration, '');
+  assert.doesNotMatch(JSON.stringify(details), /private user request/);
+});
+
 test('failed_generation is reduced to a bounded, redacted structure preview', () => {
   const prompt = 'private plan request';
   const failedGeneration = '{"recommendations":[{"candidateId":"candidate-2026-01-01","title":"홍길동 010-1234-5678","reason":"private plan request"}]}';

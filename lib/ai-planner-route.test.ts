@@ -52,6 +52,49 @@ test('AI planner requires an explicitly selected Groq model', async () => {
   }
 });
 
+test('AI planner requests bounded JSON Object output and validates the matching field shape', async () => {
+  const previousKey = process.env.GROQ_API_KEY;
+  const previousModel = process.env.GROQ_MODEL;
+  const previousKasiKey = process.env.KASI_SERVICE_KEY;
+  const previousGoogleKey = process.env.GOOGLE_CALENDAR_API_KEY;
+  const previousFetch = globalThis.fetch;
+  process.env.GROQ_API_KEY = 'test-key-not-used';
+  process.env.GROQ_MODEL = 'test-model';
+  delete process.env.KASI_SERVICE_KEY;
+  delete process.env.GOOGLE_CALENDAR_API_KEY;
+  let requestBody: Record<string, unknown> | undefined;
+  globalThis.fetch = async (_input, init) => {
+    requestBody = JSON.parse(String(init?.body)) as Record<string, unknown>;
+    return Response.json({ choices: [{ message: { content: JSON.stringify({ recommendations: [{
+      candidateId: '2026-12-25:2026-12-28',
+      title: '성탄절 연휴 휴식',
+      description: '공휴일과 주말을 이어 쉬는 일정입니다.',
+      reason: '연차 하루로 휴식 기간을 늘립니다.',
+      advantages: '연속 4일을 쉴 수 있습니다.',
+      disadvantages: '연말 약속과 겹치는지 확인하세요.'
+    }] }) } }] });
+  };
+  try {
+    const response = await POST(new Request('http://localhost/api/ai-planner/analyze', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(validRequest)
+    }));
+    assert.equal(response.status, 200);
+    const result = await response.json();
+    assert.equal(result.recommendations[0].candidateId, '2026-12-25:2026-12-28');
+    assert.deepEqual(requestBody?.response_format, { type: 'json_object' });
+    assert.equal(requestBody?.max_tokens, 3000);
+    const messages = requestBody?.messages as Array<{ content: string }>;
+    assert.match(messages[1].content, /120자 이하/);
+    assert.doesNotMatch(messages[1].content, /responseSchema/);
+  } finally {
+    globalThis.fetch = previousFetch;
+    if (previousKey === undefined) delete process.env.GROQ_API_KEY; else process.env.GROQ_API_KEY = previousKey;
+    if (previousModel === undefined) delete process.env.GROQ_MODEL; else process.env.GROQ_MODEL = previousModel;
+    if (previousKasiKey === undefined) delete process.env.KASI_SERVICE_KEY; else process.env.KASI_SERVICE_KEY = previousKasiKey;
+    if (previousGoogleKey === undefined) delete process.env.GOOGLE_CALENDAR_API_KEY; else process.env.GOOGLE_CALENDAR_API_KEY = previousGoogleKey;
+  }
+});
+
 test('AI planner rejects out-of-range leave limits before external calls', async () => {
   const response = await POST(new Request('http://localhost/api/ai-planner/analyze', {
     method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ...validRequest, maxLeaveDays: 8 })

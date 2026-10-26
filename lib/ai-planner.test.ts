@@ -33,6 +33,7 @@ test('model explanations can only reference known candidates and valid structure
   assert.equal(resolved.startDate, candidate.startDate);
   assert.equal(resolved.requiredLeaveDays, candidate.requiredLeaveDays);
   assert.throws(() => resolvePlannerRecommendations(JSON.stringify({ recommendations: [{ ...recommendation, candidateId: 'unknown' }] }), [candidate]), /unknown_candidate/);
+  assert.throws(() => resolvePlannerRecommendations(JSON.stringify({ recommendations: [{ ...recommendation, reason: '가'.repeat(121) }] }), [candidate]), /invalid_explanation/);
   assert.throws(() => resolvePlannerRecommendations(JSON.stringify({ recommendations: [{ ...recommendation, reason: '2026년 12월 25일부터 쉬어요.' }] }), [candidate]), /unverified_date/);
 });
 
