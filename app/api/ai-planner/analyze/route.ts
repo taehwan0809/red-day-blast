@@ -89,16 +89,17 @@ export async function POST(request: Request) {
   }
 
   const apiKey = process.env.GROQ_API_KEY?.trim();
-  if (!apiKey) {
+  const groqModel = process.env.GROQ_MODEL?.trim();
+  if (!apiKey || !groqModel) {
+    const missing = [!apiKey ? 'GROQ_API_KEY' : null, !groqModel ? 'GROQ_MODEL' : null].filter(Boolean);
+    console.error('[ai-planner] configuration', JSON.stringify({ missing }));
     return NextResponse.json({
-      error: 'GROQ_API_KEY_MISSING',
-      message: 'Groq API 키가 설정되지 않았어요. 관리자에게 문의해 주세요.'
-    }, { status: 503 });
-  }
-  if (!process.env.GROQ_MODEL?.trim()) {
-    return NextResponse.json({
-      error: 'GROQ_MODEL_MISSING',
-      message: 'Groq 모델이 설정되지 않았어요. 관리자에게 문의해 주세요.'
+      error: !apiKey ? 'GROQ_API_KEY_MISSING' : 'GROQ_MODEL_MISSING',
+      message: !apiKey && !groqModel
+        ? 'GROQ_API_KEY와 GROQ_MODEL 설정이 필요해요. 관리자에게 문의해 주세요.'
+        : !apiKey
+          ? 'Groq API 키가 설정되지 않았어요. 관리자에게 문의해 주세요.'
+          : 'Groq 모델이 설정되지 않았어요. 공식 모델 목록에서 선택해 주세요.'
     }, { status: 503 });
   }
 
