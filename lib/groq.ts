@@ -37,7 +37,7 @@ export async function generateGroqJson(prompt: string, maxTokens: number): Promi
         body: JSON.stringify({
           model,
           messages: [
-            { role: 'system', content: 'Return only a valid JSON object. Do not use markdown fences or add text outside the JSON.' },
+            { role: 'system', content: 'Return exactly one syntactically valid json object. Do not use Markdown fences or add text outside the json object. Follow the requested property names and value types.' },
             { role: 'user', content: prompt }
           ],
           response_format: { type: 'json_object' },

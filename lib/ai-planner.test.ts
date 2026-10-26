@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { buildPlannerCandidates, resolvePlannerRecommendations, validateExistingPlanRanges } from './ai-planner';
+import { buildPlannerCandidates, parsePlannerResponse, resolvePlannerRecommendations, validateExistingPlanRanges, validatePlannerRecommendations } from './ai-planner';
 import { HOLIDAYS } from './holidays';
 
 test('candidate dates and leave days come from the verified calendar, not the model', () => {
@@ -34,4 +34,11 @@ test('model explanations can only reference known candidates and valid structure
   assert.equal(resolved.requiredLeaveDays, candidate.requiredLeaveDays);
   assert.throws(() => resolvePlannerRecommendations(JSON.stringify({ recommendations: [{ ...recommendation, candidateId: 'unknown' }] }), [candidate]), /unknown_candidate/);
   assert.throws(() => resolvePlannerRecommendations(JSON.stringify({ recommendations: [{ ...recommendation, reason: '2026년 12월 25일부터 쉬어요.' }] }), [candidate]), /unverified_date/);
+});
+
+test('JSON parsing errors are distinct from response shape and candidate validation errors', () => {
+  assert.throws(() => parsePlannerResponse('not json'), /invalid_json/);
+  assert.throws(() => validatePlannerRecommendations({ recommendations: 'not an array' }, []), /invalid_structure/);
+  assert.throws(() => validatePlannerRecommendations({ recommendations: [{ candidateId: 'unknown' }] }, []), /unknown_candidate/);
+  assert.throws(() => parsePlannerResponse(undefined), /empty_response/);
 });

@@ -13,6 +13,7 @@ test('Groq rate limit, provider failures and network errors are classified disti
   assert.equal(classifyGroqError(Object.assign(new Error('bad gateway'), { status: 502 })).responseStatus, 502);
   assert.equal(classifyGroqError(Object.assign(new Error('unavailable'), { status: 503 })).responseStatus, 503);
   assert.equal(classifyGroqError(Object.assign(new Error('gateway timeout'), { status: 504 })).errorCode, 'GROQ_TIMEOUT');
+  assert.equal(classifyGroqError(Object.assign(new Error('json_validate_failed'), { status: 400 })).errorCode, 'GROQ_JSON_GENERATION_FAILED');
   assert.equal(classifyGroqError(new TypeError('fetch failed')).kind, 'network');
 });
 
@@ -86,4 +87,18 @@ test('Groq provider diagnostics redact API keys and user-provided sensitive valu
   assert.equal(details.code, 'invalid_request');
   assert.doesNotMatch(details.message, /private plan request|gsk_|user@example\.com/);
   assert.match(details.message, /\[redacted-email\]/);
+});
+
+test('failed_generation is reduced to a bounded, redacted structure preview', () => {
+  const prompt = 'private plan request';
+  const failedGeneration = '{"recommendations":[{"candidateId":"candidate-2026-01-01","title":"홍길동 010-1234-5678","reason":"private plan request"}]}';
+  const error = Object.assign(new Error(JSON.stringify({ error: {
+    code: 'json_validate_failed', message: 'Failed to validate JSON.', failed_generation: failedGeneration
+  } })), { status: 400 });
+  const details = getSafeGroqErrorDetails(error, [prompt]);
+  assert.equal(details.code, 'json_validate_failed');
+  assert.ok(details.failedGeneration);
+  assert.ok(details.failedGeneration!.length <= 400);
+  assert.match(details.failedGeneration!, /recommendations/);
+  assert.doesNotMatch(details.failedGeneration!, /홍길동|010-1234-5678|private plan request|candidate-2026/);
 });

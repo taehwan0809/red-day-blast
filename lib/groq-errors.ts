@@ -23,32 +23,62 @@ export function getSafeGroqErrorDetails(error: unknown, sensitiveValues: string[
   const rawMessage = error instanceof Error ? error.message : '';
   let message = rawMessage;
   let code: string | null = null;
+  let failedGeneration: string | undefined;
   const jsonStart = rawMessage.indexOf('{');
   const jsonEnd = rawMessage.lastIndexOf('}');
   if (jsonStart >= 0 && jsonEnd > jsonStart) {
     try {
       const parsed = JSON.parse(rawMessage.slice(jsonStart, jsonEnd + 1)) as {
-        error?: { code?: unknown; type?: unknown; message?: unknown };
+        error?: { code?: unknown; type?: unknown; message?: unknown; failed_generation?: unknown };
+        failed_generation?: unknown;
       };
-      if (parsed.error && typeof parsed.error === 'object') {
-        if (typeof parsed.error.code === 'string') code = parsed.error.code;
-        else if (typeof parsed.error.type === 'string') code = parsed.error.type;
-        if (typeof parsed.error.message === 'string') message = parsed.error.message;
-      }
+      const payload: { code?: unknown; type?: unknown; message?: unknown; failed_generation?: unknown } =
+        parsed.error && typeof parsed.error === 'object' ? parsed.error : parsed;
+      if (typeof payload.code === 'string') code = payload.code;
+      else if (typeof payload.type === 'string') code = payload.type;
+      if (typeof payload.message === 'string') message = payload.message;
+      const generation = payload.failed_generation ?? parsed.failed_generation;
+      if (typeof generation === 'string') failedGeneration = generation;
+      else if (generation !== undefined) failedGeneration = JSON.stringify(generation);
     } catch {
       // Preserve the provider body when it is not JSON.
     }
   }
 
-  for (const value of sensitiveValues) {
-    if (value.length >= 3) message = message.split(value).join('[redacted]');
+  return {
+    code,
+    message: sanitizeProviderText(message, sensitiveValues, 1000) || 'No provider message available.',
+    failedGeneration: failedGeneration === undefined
+      ? undefined
+      : sanitizeFailedGeneration(failedGeneration, sensitiveValues)
+  };
+}
+
+const plannerFieldNames = new Set(['recommendations', 'candidateId', 'title', 'description', 'reason', 'advantages', 'disadvantages', 'true', 'false', 'null']);
+
+function sanitizeProviderText(value: string, sensitiveValues: string[], maxLength: number) {
+  let sanitized = value;
+  for (const secret of sensitiveValues) {
+    if (secret.length >= 3) sanitized = sanitized.split(secret).join('[redacted]');
   }
-  message = message
+  return sanitized
     .replace(/gsk_[0-9A-Za-z_-]{12,}/g, '[redacted-api-key]')
     .replace(/Bearer\s+\S+/gi, 'Bearer [redacted]')
     .replace(/[\w.%+-]+@[\w.-]+\.[A-Za-z]{2,}/g, '[redacted-email]')
-    .slice(0, 1000);
-  return { code, message: message || 'No provider message available.' };
+    .replace(/(?:\+?82[- ]?)?0\d{1,2}[- ]?\d{3,4}[- ]?\d{4}/g, '[redacted-phone]')
+    .replace(/\b\d{4}-\d{2}-\d{2}\b/g, '[redacted-date]')
+    .slice(0, maxLength);
+}
+
+function sanitizeFailedGeneration(value: string, sensitiveValues: string[]) {
+  const redacted = sanitizeProviderText(value, sensitiveValues, 10_000)
+    .replace(/"((?:\\.|[^"\\])*)"/g, (match, key: string, offset: number, source: string) => {
+      const followsColon = source.slice(offset + match.length).trimStart().startsWith(':');
+      return followsColon && plannerFieldNames.has(key) ? match : '"[redacted]"';
+    })
+    .replace(/\b[A-Za-z][A-Za-z0-9_-]*\b/g, token => plannerFieldNames.has(token) ? token : '[redacted]')
+    .replace(/[\p{Script=Hangul}\p{Script=Han}]{2,}/gu, '[redacted]');
+  return redacted.slice(0, 400);
 }
 
 export function classifyGroqError(error: unknown): GroqFailure {
@@ -93,6 +123,10 @@ export function classifyGroqError(error: unknown): GroqFailure {
   if (providerStatus !== null && providerStatus >= 500) return {
     kind: 'temporarily_unavailable', providerStatus, responseStatus: 503, errorCode: 'GROQ_TEMPORARILY_UNAVAILABLE',
     userMessage: 'Groq 서비스가 일시적으로 응답하지 않아요. 잠시 후 다시 시도해 주세요.'
+  };
+  if (providerStatus === 400 && /json_validate_failed/.test(details)) return {
+    kind: 'request_rejected', providerStatus, responseStatus: 502, errorCode: 'GROQ_JSON_GENERATION_FAILED',
+    userMessage: 'AI가 올바른 JSON 응답을 만들지 못했어요. 잠시 후 다시 시도해 주세요.'
   };
   if (providerStatus === 400) return {
     kind: 'request_rejected', providerStatus, responseStatus: 502, errorCode: 'GROQ_REQUEST_REJECTED',

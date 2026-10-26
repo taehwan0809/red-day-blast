@@ -124,12 +124,15 @@ export async function POST(request: Request) {
     try {
       const prompt = [
         '당신은 한국어 일정 충돌 설명 도우미입니다. 서버가 제공한 일정과 확정 이슈만 설명하고, 확인되지 않은 장소·영업·예약·이동 정보를 만들지 마세요. 대안은 이슈가 있는 단일 일정의 시각만 조정하고 날짜와 장소명은 유지하세요. 사용자 동의 전에 원 일정이 변경되지 않습니다. 이동시간 이슈는 충분한 버퍼를 확보하는 시간 변경안을 제안하세요. 사유가 없으면 빈 suggestions를 반환하세요.',
-        '응답은 다음 JSON 구조에 맞춰 반환하세요. scheduleIds에는 입력된 ID 중 하나만 포함하고, 다른 필드값을 만들지 마세요.',
+        '응답은 json object 하나만 반환하세요. Markdown fence, 주석, 앞뒤 설명은 금지합니다. summary는 문자열이고 suggestions는 최대 3개의 항목을 담는 배열이며, 각 항목은 responseSchema의 필수 속성만 사용합니다.',
+        'scheduleIds에는 제공된 ID 중 하나만 넣고, 대안은 단일 일정의 시간만 제안하세요. 날짜와 장소는 바꾸지 않습니다.',
         JSON.stringify({
-          responseFormat: suggestionSchema(selected.map(s => s.id)),
-          schedules: selected.map(s => ({ id:s.id, title:s.title, startDate:s.startDate, startTime:s.startTime, endDate:s.endDate, endTime:s.endTime, placeName:s.placeName })),
-          issues,
-          places: places.map(p => ({ scheduleId:p.scheduleId, status:p.status, businessStatus:p.businessStatus }))
+          responseSchema: suggestionSchema(selected.map(s => s.id)),
+          request: {
+            schedules: selected.map(s => ({ id:s.id, title:s.title, startDate:s.startDate, startTime:s.startTime, endDate:s.endDate, endTime:s.endTime, placeName:s.placeName })),
+            issues,
+            places: places.map(p => ({ scheduleId:p.scheduleId, status:p.status, businessStatus:p.businessStatus }))
+          }
         })
       ].join('\n\n');
       const responseText = await generateGroqJson(prompt, 1300);

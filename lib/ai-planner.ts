@@ -88,14 +88,16 @@ export function buildPlannerCandidates(
     .slice(0, 120);
 }
 
-export function resolvePlannerRecommendations(text: string | undefined, candidates: PlannerCandidate[]): PlannerRecommendation[] {
+export function parsePlannerResponse(text: string | undefined): unknown {
   if (!text) throw new Error('empty_response');
-  let parsed: unknown;
   try {
-    parsed = JSON.parse(text);
+    return JSON.parse(text);
   } catch {
     throw new Error('invalid_json');
   }
+}
+
+export function validatePlannerRecommendations(parsed: unknown, candidates: PlannerCandidate[]): PlannerRecommendation[] {
   if (!parsed || typeof parsed !== 'object' || !('recommendations' in parsed) || !Array.isArray(parsed.recommendations)) {
     throw new Error('invalid_structure');
   }
@@ -135,4 +137,8 @@ export function resolvePlannerRecommendations(text: string | undefined, candidat
       disadvantages: (item.disadvantages as string).trim()
     };
   });
+}
+
+export function resolvePlannerRecommendations(text: string | undefined, candidates: PlannerCandidate[]): PlannerRecommendation[] {
+  return validatePlannerRecommendations(parsePlannerResponse(text), candidates);
 }
