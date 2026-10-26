@@ -10,10 +10,10 @@
     "build": "next build",
     "start": "next start",
     "typecheck": "tsc --noEmit",
-    "test": "tsx --test lib/calendar.test.ts lib/date-picker.test.ts lib/golden-analysis.test.ts lib/openai-errors.test.ts lib/openai-live.test.ts lib/openai-route.test.ts lib/plan-errors.test.ts lib/schedule-check.test.ts lib/schedule-check-route.test.ts"
+    "test": "tsx --test lib/calendar.test.ts lib/date-picker.test.ts lib/ai-planner.test.ts lib/ai-planner-route.test.ts lib/gemini-errors.test.ts lib/plan-errors.test.ts lib/schedule-check.test.ts lib/schedule-check-route.test.ts"
   },
   "dependencies": {
-    "openai": "^7.41.0",
+    "@google/genai": "2.31.0",
     "@supabase/supabase-js": "^2.118.0",
     "lucide-react": "^0.468.0",
     "next": "^16.4.2",

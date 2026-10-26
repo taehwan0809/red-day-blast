@@ -2,11 +2,11 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { POST } from '../app/api/schedule-check/analyze/route';
 
-test('without Google Maps and GPT keys the API still returns deterministic overlap checks and configuration states', async () => {
+test('without Google Maps and Gemini keys the API still returns deterministic overlap checks and configuration states', async () => {
   const oldMaps = process.env.GOOGLE_MAPS_API_KEY;
-  const oldGpt = process.env.GPT_API_KEY;
+  const oldGemini = process.env.GEMINI_API_KEY;
   delete process.env.GOOGLE_MAPS_API_KEY;
-  delete process.env.GPT_API_KEY;
+  delete process.env.GEMINI_API_KEY;
   try {
     const schedules = [
       { id:'a', title:'첫 일정', startDate:'2026-10-23', startTime:'10:00', endDate:'2026-10-23', endTime:'11:30', placeName:'', address:'', placeId:'', memo:'' },
@@ -21,7 +21,7 @@ test('without Google Maps and GPT keys the API still returns deterministic overl
     assert.ok(data.issues.some((issue: { type:string }) => issue.type === 'time_overlap'));
   } finally {
     if (oldMaps === undefined) delete process.env.GOOGLE_MAPS_API_KEY; else process.env.GOOGLE_MAPS_API_KEY = oldMaps;
-    if (oldGpt === undefined) delete process.env.GPT_API_KEY; else process.env.GPT_API_KEY = oldGpt;
+    if (oldGemini === undefined) delete process.env.GEMINI_API_KEY; else process.env.GEMINI_API_KEY = oldGemini;
   }
 });
 
